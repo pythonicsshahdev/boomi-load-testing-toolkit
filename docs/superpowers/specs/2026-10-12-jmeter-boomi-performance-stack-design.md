@@ -27,6 +27,7 @@ Build a **general-purpose performance-testing harness** — not a single-example
 - **Distributed/parallel load generation.** Not urgent at current scale. If needed later, the design should favor several independent JMeter pods each scraped by Prometheus, rather than JMeter's native RMI master/slave distributed mode (painful in containers/k8s — static pod IPs, firewalled RMI ports). This is a note for whoever designs the Helm chart, not a current requirement.
 - **Trace/span correlation** with the existing OTel observability stack (tagging a load-test run so it's identifiable in that stack's API Performance dashboard). Contingent on confirming whether a Boomi process under test can be made to echo a run identifier into its Notify-shape message — unconfirmed, out of scope here.
 - **The Helm chart itself.** Only the container images need to be Helm-ready (i.e., not architecturally hostile to k8s); the chart is a later, separate piece of work.
+- **A Mashery/Cloud API Management-flavored starter template, and MCP Gateway support.** The harness generalizes to both (see Starter templates section), but neither is built in this round. Mashery is cheap to add later (same JMeter mechanics, different auth convention); MCP Gateway is contingent on confirming whether its transport is plain JSON-over-HTTP or a persistent streaming transport (SSE/WebSocket) that would need real additional work.
 
 ## Architecture
 
@@ -76,6 +77,14 @@ The `test-plans/` directory is a single source of truth, bind-mounted so it's re
 2. **`jmeter-gui` container** (noVNC) for anyone without a local JMeter install — same folder, mounted into the container, reachable via browser, with JMeter Studio pre-installed so this path's first impression isn't JMeter's dated stock UI.
 
 Both options are supported simultaneously because the audience's local environment can't be assumed.
+
+### Starter templates
+
+To give the `jmeter-gui`/local-GUI authoring experience real baked-in value (not just a themed editor), this repo ships hand-authored **starter `.jmx` templates** for REST and GraphQL, checked into `test-plans/rest/` and `test-plans/graphql/` directly — not baked into any container image. (`test-plans/` is a bind-mounted shared volume; content placed at that path inside an image would be masked the moment the host folder is mounted over it, so starter content has to live as real tracked files in the repo, authored the same hand-typed way as everything else per [[feedback-collaboration-mode]].) Each starter template already has an HTTP Authorization Manager / Header Manager wired for Boomi API Management's typical auth conventions (Basic Auth or API-key header) and a JSON extractor shaped for Boomi's typical response/error envelope — so building a new test plan means cloning the starter and swapping in a real endpoint URL, not starting from a blank canvas. SOAP has no starter template, consistent with the decision not to invest further engineering in SOAP-specific tooling.
+
+The underlying mechanics (HTTP sampler + auth manager + extractor) aren't specific to Boomi's own API Management — the same starter pattern applies to any gateway fronting a REST/GraphQL endpoint, including **Mashery/Cloud API Management** (different auth convention — typically an API key as a query param rather than a header, sometimes OAuth2 — but otherwise identical JMeter mechanics). A Mashery-flavored starter template is cheap to add later and is **not** part of this round's scope.
+
+**MCP Gateway is explicitly deferred**, contingent on its transport: if an MCP Gateway endpoint turns out to be plain JSON-over-HTTP (JSON-RPC-style request/response), it needs no new work beyond another starter template. If it relies on a persistent streaming transport (SSE or WebSocket, common for MCP's server-to-client messages), that's a materially different JMeter story — needing its WebSocket plugin or custom sampler work — and shouldn't be assumed in scope without first confirming which shape applies.
 
 ### Execution lifecycle
 
