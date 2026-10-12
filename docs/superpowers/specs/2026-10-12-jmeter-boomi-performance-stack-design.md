@@ -58,7 +58,7 @@ BOOMI_Performance_Testing_POC/
 | Service | Role | Image source |
 |---|---|---|
 | `jmeter` | Headless test execution; Backend Listener (via `jmeter-prometheus-plugin`) exposes a metrics port while running | New — published to Docker Hub |
-| `jmeter-gui` | Browser-accessible JMeter GUI (noVNC) for authors without a local JMeter install | New — published to Docker Hub |
+| `jmeter-gui` | Browser-accessible JMeter GUI (noVNC) for authors without a local JMeter install, with JMeter Studio (QAInsights) theme/icon pack baked in for a friendlier, modernized editing experience than JMeter's default Swing UI | New — published to Docker Hub |
 | `prometheus` | Scrapes the `jmeter` container's metrics port, persists to its own TSDB | Stock image + baked-in scrape config |
 | `grafana` | Pre-provisioned dashboards + Prometheus datasource | New — published to Docker Hub (matches existing convention of only publishing images with real baked-in value) |
 | `rest-target` | Sample REST system-under-test | Existing — reuses `pythonicshahdev/fastapi-commercial-source:latest` unchanged |
@@ -72,8 +72,8 @@ All services share one isolated Docker network, matching the shape of the earlie
 
 The `test-plans/` directory is a single source of truth, bind-mounted so it's reachable from:
 
-1. **Local host JMeter GUI** (already installed via brew for this user) opened directly against the host folder — no container involved for authoring.
-2. **`jmeter-gui` container** (noVNC) for anyone without a local JMeter install — same folder, mounted into the container, reachable via browser.
+1. **Local host JMeter GUI** (already installed via brew for this user) opened directly against the host folder — no container involved for authoring. The repo's setup docs should note JMeter Studio (QAInsights) as an optional local install for anyone who wants the same modernized look as path 2 — it's a theming/icon-pack plugin for JMeter's own editor, with no bearing on containerized/headless execution.
+2. **`jmeter-gui` container** (noVNC) for anyone without a local JMeter install — same folder, mounted into the container, reachable via browser, with JMeter Studio pre-installed so this path's first impression isn't JMeter's dated stock UI.
 
 Both options are supported simultaneously because the audience's local environment can't be assumed.
 
