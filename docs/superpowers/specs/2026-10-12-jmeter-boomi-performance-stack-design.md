@@ -58,7 +58,7 @@ BOOMI_Performance_Testing_POC/
 
 | Service | Role | Image source |
 |---|---|---|
-| `jmeter` | Headless test execution; Backend Listener (via `jmeter-prometheus-plugin`) exposes a metrics port while running | New — published to Docker Hub |
+| `jmeter` | Headless test execution; a dedicated **Prometheus Listener** element (from `jmeter-prometheus-plugin`, added via Add → Listener → Prometheus Listener — it's its own listener type, not a generic Backend Listener) exposes a metrics port while running | New — published to Docker Hub |
 | `jmeter-gui` | Browser-accessible JMeter GUI (noVNC) for authors without a local JMeter install, with JMeter Studio (QAInsights) theme/icon pack baked in for a friendlier, modernized editing experience than JMeter's default Swing UI | New — published to Docker Hub |
 | `prometheus` | Scrapes the `jmeter` container's metrics port, persists to its own TSDB | Stock image + baked-in scrape config |
 | `grafana` | Pre-provisioned dashboards + Prometheus datasource | New — published to Docker Hub (matches existing convention of only publishing images with real baked-in value) |
@@ -88,9 +88,9 @@ The underlying mechanics (HTTP sampler + auth manager + extractor) aren't specif
 
 ### Execution lifecycle
 
-1. **Author** — open a `.jmx` in `test-plans/<protocol>/` via either authoring path. Correlation is built with JMeter's native extractors (JSON Path / XPath / Regex), no code. Metrics export is added the same way, as a Backend Listener GUI element pointed at the Prometheus plugin client class — not something hidden in the container.
-2. **Execute** — `./run-test.sh rest/scenario.jmx` wraps `docker compose run jmeter -n -t test-plans/rest/scenario.jmx`, generating a timestamp-based `RUN_ID` automatically and passing it into the container as an env var.
-3. **Scrape** — `prometheus` scrapes the `jmeter` container's exposed metrics port on an interval, persisting with normal retention. The Backend Listener attaches the `run_id` as a label on every exported metric.
+1. **Author** — open a `.jmx` in `test-plans/<protocol>/` via either authoring path. Correlation is built with JMeter's native extractors (JSON Path / XPath / Regex), no code. Metrics export is added the same way, as a Prometheus Listener GUI element — not something hidden in the container.
+2. **Execute** — `./run-test.sh rest/scenario.jmx` wraps `docker compose run jmeter -n -t test-plans/rest/scenario.jmx -JRUN_ID=<generated>`, generating a timestamp-based `RUN_ID` automatically and passing it in as a JMeter property (`-J`), read in the test plan via `${__P(RUN_ID,manual-run)}`.
+3. **Scrape** — `prometheus` scrapes the `jmeter` container's exposed metrics port on an interval, persisting with normal retention. The Prometheus Listener's metric definitions include `run_id` (resolved from the `-J` property into a JMeter variable) as a label on every exported metric.
 4. **Observe** — `grafana`'s pre-provisioned dashboards (datasource already pointed at this `prometheus`) support filtering/grouping by a `run_id` dashboard variable, enabling run-over-run comparison instead of one blended timeseries.
 5. **Target** — load lands on `rest-target`, `graphql-target`, or the external SOAP demo service depending on which test plan ran.
 
