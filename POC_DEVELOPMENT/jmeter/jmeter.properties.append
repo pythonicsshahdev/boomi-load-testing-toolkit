@@ -1,0 +1,7 @@
+# Boomi Performance Testing Stack overrides — appended to the stock jmeter.properties.
+# Containers need the Prometheus listener to bind on all interfaces, not just
+# localhost, or the prometheus service on the shared Docker network can never
+# reach it — and that failure is silent on both sides (see Review Focus).
+
+prometheus.ip=0.0.0.0
+prometheus.port=9270

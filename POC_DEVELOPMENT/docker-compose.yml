@@ -1,0 +1,29 @@
+networks:
+  perf-test-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+
+services:
+  jmeter:
+    build:
+      context: ./jmeter
+    image: boomi-jmeter:dev
+    networks:
+      - perf-test-net
+    volumes:
+      - ./test-plans:/test-plans
+    env_file:
+      - .env
+    profiles: ["tools"]
+
+  prometheus:
+    image: prom/prometheus:latest
+    networks:
+      - perf-test-net
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
