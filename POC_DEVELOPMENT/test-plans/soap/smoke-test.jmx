@@ -168,6 +168,18 @@
               <stringProp name="listener.collector.listen_to">samples</stringProp>
               <stringProp name="listener.collector.measuring">ResponseTime</stringProp>
             </elementProp>
+            <elementProp name="" elementType="com.github.johrstrom.listener.ListenerCollectorConfig">
+              <stringProp name="collector.help">total JMeter sample failures (catches assertion failures that still return HTTP 200)</stringProp>
+              <stringProp name="collector.metric_name">jmeter_failures_total</stringProp>
+              <stringProp name="collector.type">COUNTER</stringProp>
+              <collectionProp name="collector.labels">
+                <stringProp name="1">label</stringProp>
+                <stringProp name="2">code</stringProp>
+                <stringProp name="3">run_id</stringProp>
+              </collectionProp>
+              <stringProp name="listener.collector.listen_to">samples</stringProp>
+              <stringProp name="listener.collector.measuring">FailureTotal</stringProp>
+            </elementProp>
           </collectionProp>
         </com.github.johrstrom.listener.PrometheusListener>
         <hashTree/>

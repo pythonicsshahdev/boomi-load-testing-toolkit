@@ -55,7 +55,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "targets": [
         {
-          "expr": "sum(rate(jmeter_requests_total{run_id=~\"$run_id\", code!~\"2..\"}[1m])) by (run_id)",
+          "expr": "sum(rate(jmeter_failures_total{run_id=~\"$run_id\"}[1m])) by (run_id)",
           "legendFormat": "{{run_id}}"
         }
       ]

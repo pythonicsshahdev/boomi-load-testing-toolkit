@@ -53,7 +53,7 @@
             </elementProp>
             <elementProp name="" elementType="Header">
               <stringProp name="Header.name">Authorization</stringProp>
-              <stringProp name="Header.value">Bearer ${__env(BOOMI_TEST_TARGET_API_KEY)}</stringProp>
+              <stringProp name="Header.value">Bearer ${__groovy(System.getenv("BOOMI_TEST_TARGET_API_KEY"))}</stringProp>
             </elementProp>
           </collectionProp>
         </HeaderManager>
@@ -149,6 +149,18 @@
               <stringProp name="collector.quantiles_or_buckets">50,100,250,500,1000,2500,5000,10000</stringProp>
               <stringProp name="listener.collector.listen_to">samples</stringProp>
               <stringProp name="listener.collector.measuring">ResponseTime</stringProp>
+            </elementProp>
+            <elementProp name="" elementType="com.github.johrstrom.listener.ListenerCollectorConfig">
+              <stringProp name="collector.help">total JMeter sample failures (catches assertion failures that still return HTTP 200)</stringProp>
+              <stringProp name="collector.metric_name">jmeter_failures_total</stringProp>
+              <stringProp name="collector.type">COUNTER</stringProp>
+              <collectionProp name="collector.labels">
+                <stringProp name="1">label</stringProp>
+                <stringProp name="2">code</stringProp>
+                <stringProp name="3">run_id</stringProp>
+              </collectionProp>
+              <stringProp name="listener.collector.listen_to">samples</stringProp>
+              <stringProp name="listener.collector.measuring">FailureTotal</stringProp>
             </elementProp>
           </collectionProp>
         </com.github.johrstrom.listener.PrometheusListener>

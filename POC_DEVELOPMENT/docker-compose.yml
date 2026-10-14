@@ -16,7 +16,8 @@ services:
     volumes:
       - ./test-plans:/test-plans
     env_file:
-      - .env
+      - path: .env
+        required: false
     profiles: ["tools"]
 
   jmeter-gui:
@@ -26,11 +27,12 @@ services:
     networks:
       - perf-test-net
     ports:
-      - "6080:6080"
+      - "127.0.0.1:6080:6080"
     volumes:
       - ./test-plans:/test-plans
     env_file:
-      - .env
+      - path: .env
+        required: false
 
   prometheus:
     image: prom/prometheus:latest
@@ -40,7 +42,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
   grafana:
     build:
       context: ./grafana
@@ -48,7 +50,7 @@ services:
     networks:
       - perf-test-net
     ports:
-      - "3004:3000"
+      - "127.0.0.1:3004:3000"
     volumes:
       - grafana-data:/var/lib/grafana
     depends_on:
@@ -59,7 +61,7 @@ services:
     networks:
       - perf-test-net
     ports:
-      - "8010:4005"
+      - "127.0.0.1:8010:4005"
 
   graphql-target:
     build:
@@ -68,4 +70,4 @@ services:
     networks:
       - perf-test-net
     ports:
-      - "8011:8001"
+      - "127.0.0.1:8011:8001"

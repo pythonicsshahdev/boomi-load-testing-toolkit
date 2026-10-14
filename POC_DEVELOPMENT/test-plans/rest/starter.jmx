@@ -49,8 +49,8 @@
           <collectionProp name="AuthManager.auth_list">
             <elementProp name="" elementType="Authorization">
               <stringProp name="Authorization.url">http://rest-target:4005</stringProp>
-              <stringProp name="Authorization.username">${__env(BOOMI_TEST_TARGET_BASIC_AUTH_USER)}</stringProp>
-              <stringProp name="Authorization.password">${__env(BOOMI_TEST_TARGET_BASIC_AUTH_PASS)}</stringProp>
+              <stringProp name="Authorization.username">${__groovy(System.getenv("BOOMI_TEST_TARGET_BASIC_AUTH_USER"))}</stringProp>
+              <stringProp name="Authorization.password">${__groovy(System.getenv("BOOMI_TEST_TARGET_BASIC_AUTH_PASS"))}</stringProp>
               <stringProp name="Authorization.mechanism">BASIC_DIGEST</stringProp>
             </elementProp>
           </collectionProp>
@@ -101,6 +101,16 @@
             <intProp name="Assertion.test_type">8</intProp>
           </ResponseAssertion>
           <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Detail body must echo the extracted id (a 200 with an error envelope would still pass the status check)" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49589">"customer_id":"${extracted_customer_id}"</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">Response body did not contain the extracted customer_id — a real API Management gateway can return 200 with an error envelope for an unknown id, which the status-code check above would miss.</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">16</intProp>
+          </ResponseAssertion>
+          <hashTree/>
         </hashTree>
         <TestAction guiclass="TestActionGui" testclass="TestAction" testname="Pause 15s (lets Prometheus scrape at least twice before the JVM exits)" enabled="true">
           <intProp name="ActionProcessor.action">1</intProp>
@@ -134,6 +144,18 @@
               <stringProp name="collector.quantiles_or_buckets">50,100,250,500,1000,2500,5000,10000</stringProp>
               <stringProp name="listener.collector.listen_to">samples</stringProp>
               <stringProp name="listener.collector.measuring">ResponseTime</stringProp>
+            </elementProp>
+            <elementProp name="" elementType="com.github.johrstrom.listener.ListenerCollectorConfig">
+              <stringProp name="collector.help">total JMeter sample failures (catches assertion failures that still return HTTP 200)</stringProp>
+              <stringProp name="collector.metric_name">jmeter_failures_total</stringProp>
+              <stringProp name="collector.type">COUNTER</stringProp>
+              <collectionProp name="collector.labels">
+                <stringProp name="1">label</stringProp>
+                <stringProp name="2">code</stringProp>
+                <stringProp name="3">run_id</stringProp>
+              </collectionProp>
+              <stringProp name="listener.collector.listen_to">samples</stringProp>
+              <stringProp name="listener.collector.measuring">FailureTotal</stringProp>
             </elementProp>
           </collectionProp>
         </com.github.johrstrom.listener.PrometheusListener>
