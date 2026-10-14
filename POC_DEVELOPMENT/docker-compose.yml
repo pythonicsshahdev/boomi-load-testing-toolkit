@@ -18,6 +18,19 @@ services:
       - .env
     profiles: ["tools"]
 
+  jmeter-gui:
+    build:
+      context: ./jmeter-gui
+    image: boomi-jmeter-gui:dev
+    networks:
+      - perf-test-net
+    ports:
+      - "6080:6080"
+    volumes:
+      - ./test-plans:/test-plans
+    env_file:
+      - .env
+
   prometheus:
     image: prom/prometheus:latest
     networks:
