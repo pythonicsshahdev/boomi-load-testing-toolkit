@@ -68,8 +68,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "targets": [
         {
-          "expr": "jmeter_threads{run_id=~\"$run_id\"}",
-          "legendFormat": "{{run_id}}"
+          "expr": "jmeter_threads{state=\"active\"}",
+          "legendFormat": "{{state}}"
         }
       ]
     }

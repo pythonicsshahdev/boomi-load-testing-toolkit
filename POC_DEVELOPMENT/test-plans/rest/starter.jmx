@@ -102,10 +102,10 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <TestAction guiclass="TestActionGui" testclass="TestAction" testname="Pause 6s (lets Prometheus scrape before the JVM exits)" enabled="true">
+        <TestAction guiclass="TestActionGui" testclass="TestAction" testname="Pause 15s (lets Prometheus scrape at least twice before the JVM exits)" enabled="true">
           <intProp name="ActionProcessor.action">1</intProp>
           <intProp name="ActionProcessor.target">0</intProp>
-          <stringProp name="ActionProcessor.duration">6000</stringProp>
+          <stringProp name="ActionProcessor.duration">15000</stringProp>
         </TestAction>
         <hashTree/>
         <com.github.johrstrom.listener.PrometheusListener guiclass="com.github.johrstrom.listener.gui.PrometheusListenerGui" testclass="com.github.johrstrom.listener.PrometheusListener" testname="Prometheus Listener" enabled="true">

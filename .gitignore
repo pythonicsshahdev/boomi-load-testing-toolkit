@@ -21,3 +21,7 @@ venv/
 
 # OS
 .DS_Store
+
+# JMeter test run artifacts (ephemeral, regenerated on every run)
+**/test-plans/results/*.jtl
+**/test-plans/jmeter.log
