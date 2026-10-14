@@ -1,0 +1,77 @@
+{
+  "title": "Boomi Performance Testing — JMeter Overview",
+  "uid": "boomi-perf-jmeter",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "templating": {
+    "list": [
+      {
+        "name": "run_id",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(jmeter_requests_total, run_id)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(jmeter_requests_total{run_id=~\"$run_id\"}[1m])) by (run_id)",
+          "legendFormat": "{{run_id}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "p95 Response Time (ms)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\"}[1m])) by (le, run_id))",
+          "legendFormat": "{{run_id}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(jmeter_requests_total{run_id=~\"$run_id\", code!~\"2..\"}[1m])) by (run_id)",
+          "legendFormat": "{{run_id}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Active Threads",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "jmeter_threads{run_id=~\"$run_id\"}",
+          "legendFormat": "{{run_id}}"
+        }
+      ]
+    }
+  ]
+}

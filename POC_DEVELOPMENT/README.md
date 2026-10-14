@@ -21,3 +21,13 @@ Two ways to build/edit `.jmx` files under `test-plans/`, same shared folder eith
 
 ```bash
 ./run-test.sh rest/starter.jmx
+```
+
+Generates a `RUN_ID`, runs the test headlessly, and prints the id to filter
+by in Grafana (`http://localhost:3004`, dashboard "Boomi Performance Testing
+— JMeter Overview").
+
+## Credentials
+
+Copy the `BOOMI_TEST_TARGET_*` variables from `.env.example` into this
+repo's `.env` and fill in real values for whatever API you're testing.

@@ -4,6 +4,7 @@ networks:
 
 volumes:
   prometheus-data:
+  grafana-data:
 
 services:
   jmeter:
@@ -40,3 +41,15 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
+  grafana:
+    build:
+      context: ./grafana
+    image: boomi-grafana:dev
+    networks:
+      - perf-test-net
+    ports:
+      - "3004:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
