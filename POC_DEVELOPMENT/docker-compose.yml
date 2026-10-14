@@ -53,3 +53,19 @@ services:
       - grafana-data:/var/lib/grafana
     depends_on:
       - prometheus
+
+  rest-target:
+    image: pythonicshahdev/fastapi-commercial-source:latest
+    networks:
+      - perf-test-net
+    ports:
+      - "8010:4005"
+
+  graphql-target:
+    build:
+      context: ./sample-services/graphql-strawberry
+    image: boomi-graphql-target:dev
+    networks:
+      - perf-test-net
+    ports:
+      - "8011:8001"
