@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Distributed ramp/spike load orchestrator for the Boomi performance testing stack."""
+import csv
 import json
 import subprocess
 import sys
@@ -133,6 +134,39 @@ def print_summary_report(all_rows):
             f"{row['avg_ms']:>8.0f} {row['median_ms']:>8.0f} {row['p90_ms']:>8.0f} "
             f"{row['p95_ms']:>8.0f} {row['p99_ms']:>8.0f} {row['error_pct']:>7.1f}% {row['throughput']:>7.2f}/s"
         )
+
+
+def scan_slow_requests(run_id, step_id, instances, threshold_ms):
+    slow = []
+    for idx in range(1, instances + 1):
+        jtl_path = RESULTS_DIR / f"{run_id}-{step_id}-{idx}.jtl"
+        if not jtl_path.exists():
+            continue
+        with open(jtl_path, newline="") as f:
+            for row in csv.DictReader(f):
+                elapsed = int(row["elapsed"])
+                if elapsed > threshold_ms:
+                    slow.append({
+                        "step_id": step_id,
+                        "timestamp": row["timeStamp"],
+                        "label": row["label"],
+                        "elapsed_ms": elapsed,
+                        "response_code": row["responseCode"],
+                    })
+    return slow
+
+
+def print_slow_requests_table(rows, total_requests):
+    print()
+    print(f"=== Slow Requests (total requests: {total_requests}, slow: {len(rows)}) ===")
+    if not rows:
+        print("(none)")
+        return
+    header = f"{'Step':<10} {'Timestamp':<15} {'Label':<28} {'Elapsed (ms)':>14} {'Code':>6}"
+    print(header)
+    print("-" * len(header))
+    for row in rows:
+        print(f"{row['step_id']:<10} {row['timestamp']:<15} {row['label']:<28} {row['elapsed_ms']:>14} {row['response_code']:>6}")
 
 
 def load_profile(path):
@@ -275,9 +309,16 @@ def main():
         print(f"  {r['step_id']}: {r['instances_launched']} instance(s), exit codes {r['exit_codes']} [{status}]")
 
     all_rows = []
+    all_slow = []
+    slow_threshold = profile.get("slow_request_threshold_ms")
     for r in step_results:
         all_rows.extend(query_report_rows(run_id, r["step_id"], r["step_start"], r["step_end"], warmup_sec))
+        if slow_threshold:
+            all_slow.extend(scan_slow_requests(run_id, r["step_id"], r["instances_launched"], slow_threshold))
     print_summary_report(all_rows)
+    if slow_threshold:
+        total_requests = sum(row["samples"] for row in all_rows)
+        print_slow_requests_table(all_slow, total_requests)
 
 
 if __name__ == "__main__":
