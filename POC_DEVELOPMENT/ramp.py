@@ -157,10 +157,11 @@ def print_summary_report(all_rows):
     print(header)
     print("-" * len(header))
     for row in all_rows:
+        flag = " ⚠ possible generator saturation" if row.get("saturated") else ""
         print(
             f"{row['step_id']:<10} {row['label']:<28} {row['samples']:>8} "
             f"{row['avg_ms']:>8.0f} {row['median_ms']:>8.0f} {row['p90_ms']:>8.0f} "
-            f"{row['p95_ms']:>8.0f} {row['p99_ms']:>8.0f} {row['error_pct']:>7.1f}% {row['throughput']:>7.2f}/s"
+            f"{row['p95_ms']:>8.0f} {row['p99_ms']:>8.0f} {row['error_pct']:>7.1f}% {row['throughput']:>7.2f}/s{flag}"
         )
 
 
@@ -292,8 +293,19 @@ def run_step(profile, run_id, step_idx, step):
     _current_step_state["instances"] = instances
 
     procs = []
+    names = []
     for idx in range(1, instances + 1):
+        names.append(derive_instance_name(run_id, step_id, idx))
         procs.append(launch_instance(profile["test_plan"], run_id, step_id, idx, threads, duration))
+
+    time.sleep(min(duration / 2, 10))
+    cpu_pct = sample_host_cpu(names)
+    cores = host_cpu_cores()
+    saturated = cpu_pct > (cores * 100 * 0.85)
+    if saturated:
+        print(f"[{step_id}] WARNING: load generator CPU usage ({cpu_pct:.0f}% across {len(names)} instance(s), "
+              f"host has {cores} cores) looks saturated -- these results may reflect the generator's own "
+              f"limits, not the target's.", file=sys.stderr)
 
     exit_codes = [p.wait() for p in procs]
     _current_step_state["run_id"] = None
@@ -304,7 +316,7 @@ def run_step(profile, run_id, step_idx, step):
     if failed:
         print(f"[{step_id}] WARNING: instance(s) {failed} exited non-zero: {exit_codes}", file=sys.stderr)
 
-    return {"step_id": step_id, "instances_launched": instances, "exit_codes": exit_codes}
+    return {"step_id": step_id, "instances_launched": instances, "exit_codes": exit_codes, "saturated": saturated}
 
 
 def confirm_large_step(step, step_id, test_plan, skip_confirmation):
@@ -326,6 +338,30 @@ def confirm_large_step(step, step_id, test_plan, skip_confirmation):
     if answer.strip().lower() != "yes":
         print("Aborted.", file=sys.stderr)
         sys.exit(1)
+
+
+def host_cpu_cores():
+    result = subprocess.run(["sysctl", "-n", "hw.ncpu"], capture_output=True, text=True)
+    return int(result.stdout.strip())
+
+
+def sample_host_cpu(container_names):
+    """Sums docker stats CPU% across the given containers. Returns 0.0 for
+    any container not currently running (already exited) rather than erroring."""
+    total = 0.0
+    for name in container_names:
+        result = subprocess.run(
+            ["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}", name],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            continue
+        pct_str = result.stdout.strip().rstrip("%")
+        try:
+            total += float(pct_str)
+        except ValueError:
+            continue
+    return total
 
 
 def main():
@@ -371,7 +407,10 @@ def main():
     all_slow = []
     slow_threshold = profile.get("slow_request_threshold_ms")
     for r in step_results:
-        all_rows.extend(query_report_rows(run_id, r["step_id"], r["step_start"], r["step_end"], warmup_sec))
+        step_rows = query_report_rows(run_id, r["step_id"], r["step_start"], r["step_end"], warmup_sec)
+        for row in step_rows:
+            row["saturated"] = r["saturated"]
+        all_rows.extend(step_rows)
         if slow_threshold:
             all_slow.extend(scan_slow_requests(run_id, r["step_id"], r["instances_launched"], slow_threshold))
     print_summary_report(all_rows)
