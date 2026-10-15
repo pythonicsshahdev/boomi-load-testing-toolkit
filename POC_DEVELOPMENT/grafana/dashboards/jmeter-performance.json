@@ -2,7 +2,7 @@
   "title": "Boomi Performance Testing — JMeter Overview",
   "uid": "boomi-perf-jmeter",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "timezone": "browser",
   "time": { "from": "now-1h", "to": "now" },
   "refresh": "10s",
@@ -17,33 +17,233 @@
         "multi": true,
         "includeAll": true,
         "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "step_id",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(jmeter_requests_total{run_id=~\"$run_id\"}, step_id)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" }
       }
     ]
   },
   "panels": [
     {
+      "id": 5,
+      "title": "Active Threads",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(jmeter_threads{state=\"active\"})", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Total Requests",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[$__range]))", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Throughput (RPS)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m]))", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 } },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "title": "Error Rate",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(jmeter_failures_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m])) / sum(rate(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 9,
+      "title": "p50 Response Time",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 } },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 10,
+      "title": "p90 Response Time",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 } },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "title": "p95 Response Time",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 } },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 11,
+      "title": "p99 Response Time",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 } },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
       "id": 1,
       "title": "Request Rate",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
       "targets": [
         {
-          "expr": "sum(rate(jmeter_requests_total{run_id=~\"$run_id\"}[1m])) by (run_id)",
+          "expr": "sum(rate(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (run_id)",
           "legendFormat": "{{run_id}}"
         }
       ]
     },
     {
-      "id": 2,
-      "title": "p95 Response Time (ms)",
+      "id": 12,
+      "title": "Response Time Percentiles",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\"}[1m])) by (le, run_id))",
-          "legendFormat": "{{run_id}}"
+          "expr": "histogram_quantile(0.50, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (le))",
+          "legendFormat": "p90",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "D"
         }
       ]
     },
@@ -52,10 +252,10 @@
       "title": "Error Rate",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "targets": [
         {
-          "expr": "sum(rate(jmeter_failures_total{run_id=~\"$run_id\"}[1m])) by (run_id)",
+          "expr": "sum(rate(jmeter_failures_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (run_id)",
           "legendFormat": "{{run_id}}"
         }
       ]
@@ -65,11 +265,123 @@
       "title": "Active Threads",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "description": "Summed across every currently-running instance -- jmeter_threads carries no run_id/step_id label (it's the plugin's own built-in gauge), so this can't be scoped to $run_id. Each raw per-instance series is disconnected and short-lived (one per container), which rendered as scattered, identically-labeled dots rather than a usable line; summing collapses that into one meaningful total.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "targets": [
         {
-          "expr": "jmeter_threads{state=\"active\"}",
-          "legendFormat": "{{state}}"
+          "expr": "sum(jmeter_threads{state=\"active\"})",
+          "legendFormat": "Active Threads"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Connect Time vs Latency vs Response Time (p95)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Connect Time: TCP connection setup. Latency: time to first byte (server processing). Response Time: total elapsed time including the full response body transfer. A growing gap between Latency and Response Time points at slow data transfer; a growing gap between Connect Time and Latency points at slow server processing.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(jmeter_connect_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (le))",
+          "legendFormat": "Connect Time (p95)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(jmeter_latency_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (le))",
+          "legendFormat": "Latency / TTFB (p95)",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (le))",
+          "legendFormat": "Total Response Time (p95)",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Endpoint-Level Summary",
+      "type": "table",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "sum(increase(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[$__range])) by (label)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(jmeter_response_time_ms_sum{run_id=~\"$run_id\", step_id=~\"$step_id\"}[$__range])) by (label) / sum(increase(jmeter_response_time_ms_count{run_id=~\"$run_id\", step_id=~\"$step_id\"}[$__range])) by (label)",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(increase(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[$__range])) by (le, label))",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "expr": "100 * sum(increase(jmeter_failures_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[$__range])) by (label) / sum(increase(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[$__range])) by (label)",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "renameByName": {
+              "label": "Endpoint",
+              "Value #A": "Samples",
+              "Value #B": "Avg (ms)",
+              "Value #C": "p95 (ms)",
+              "Value #D": "Error Rate %"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Top Slowest Endpoints (p95)",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum(increase(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[$__range])) by (le, label)))",
+          "legendFormat": "{{label}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Error Tracking by Code",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Request rate per endpoint, broken out by HTTP response code -- a rising 4xx/5xx line against a specific endpoint points at the bottlenecking/misbehaving route.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "expr": "sum(rate(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[1m])) by (label, code)",
+          "legendFormat": "{{label}} [{{code}}]"
         }
       ]
     }

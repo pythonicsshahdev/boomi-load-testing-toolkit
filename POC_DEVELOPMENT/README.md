@@ -133,6 +133,19 @@ Like the starters, `test-plans/{rest,graphql,soap}/ramp.jmx` already omit
 the 15-second pause mentioned below — they're built to loop for their
 configured duration, not for a single quick demo.
 
+The ramp variants export two additional metrics beyond the starters'
+`jmeter_requests_total`/`jmeter_response_time_ms`/`jmeter_failures_total`:
+`jmeter_connect_time_ms` (TCP connection setup) and `jmeter_latency_ms`
+(time to first byte / server processing time), both histograms with the
+same `label,code` dimensions. The Grafana dashboard's KPI row, percentile
+stats, Connect/Latency/Response-Time breakdown, endpoint summary table,
+slowest-endpoints bar gauge, and per-code error tracking panels all read
+from these plus the existing metrics — select a `run_id` (and optionally a
+`step_id`) to filter. The endpoint table and slowest-endpoints panels use
+instant Prometheus queries, so viewed within a few seconds of a run
+finishing they can briefly show no data — same margin as `ramp.py`'s own
+report; give it a moment or look at a run that's already fully settled.
+
 ## Credentials
 
 Copy the `BOOMI_TEST_TARGET_*` variables from `.env.example` into
