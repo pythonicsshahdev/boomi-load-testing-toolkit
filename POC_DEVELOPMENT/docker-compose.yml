@@ -41,6 +41,8 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
+      - ./prometheus/targets:/etc/prometheus/targets:ro
+
     ports:
       - "127.0.0.1:9090:9090"
   grafana:
