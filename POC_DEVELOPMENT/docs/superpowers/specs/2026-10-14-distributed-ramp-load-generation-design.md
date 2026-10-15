@@ -21,8 +21,9 @@ The existing stack runs exactly one JMeter instance at a time, as a one-shot `do
 2. Support a **ramp/spike profile**: an ordered sequence of steps, each specifying an instance count, a thread-count-per-instance, and its own duration. All three may change freely between steps — including decreasing — so the same mechanism expresses a classic monotonic ramp or an irregular spike-test pattern (load bouncing up and down across variable-length segments).
 3. **Stop automatically** if a step's steady-state (post-warm-up) error rate or average response time exceeds a configured threshold, rather than running the full profile regardless of what the target can handle.
 4. Produce a **summary report** at the end — one row per step (instances × threads × duration, throughput, error rate) with a full percentile breakdown (min, avg, stdev, P50/75/90/95/98/99) for response time, pulled from Prometheus — not something the user has to piece together from the Grafana dashboard by hand.
-5. Keep the **single-machine launcher** (this spec's actual deliverable) as thin and swappable as possible, so a VM-cluster or Kubernetes launcher can reuse the same core mechanism later without redesigning it.
-6. Offer **two ways to build a ramp profile**: hand-editing a YAML file directly (the baseline, "developer" path), or a lightweight static HTML form that generates the same YAML (a convenience layer, not a replacement) — mirroring the dual-authoring-path pattern already established for `.jmx` test plans in the base project.
+5. Flag **individual slow requests**: any single sample whose response time exceeds a configurable threshold, listed with its timestamp, label, and actual duration, plus a total-requests-vs-slow-requests count — complementing the aggregate percentiles with concrete outliers worth investigating, the way a real incident-response dashboard would.
+6. Keep the **single-machine launcher** (this spec's actual deliverable) as thin and swappable as possible, so a VM-cluster or Kubernetes launcher can reuse the same core mechanism later without redesigning it.
+7. Offer **two ways to build a ramp profile**: hand-editing a YAML file directly (the baseline, "developer" path), or a lightweight static HTML form that generates the same YAML (a convenience layer, not a replacement) — mirroring the dual-authoring-path pattern already established for `.jmx` test plans in the base project.
 
 ## Non-goals (explicitly deferred)
 
@@ -74,6 +75,7 @@ A small YAML file, passed to `ramp.sh` by path (e.g. `./ramp.sh ramp-profiles/re
 test_plan: rest/starter.jmx
 step_duration_sec: 60      # default duration; any step below may override it
 warmup_sec: 15
+slow_request_threshold_ms: 10000   # optional; omit to skip slow-request reporting
 stop_rule:
   max_error_rate_pct: 2
   max_avg_response_ms: 3000
@@ -136,14 +138,14 @@ Everything else (HTTP Request Defaults, Authorization/Header Manager using `${__
 For each step in the YAML, in order:
 
 1. Generate a `step_id` (e.g. `step-01`, `step-02`, ...). Resolve this step's effective duration: its own `duration_sec` if set, otherwise the profile's top-level `step_duration_sec`.
-2. For each of that step's `instances`: derive a deterministic container name, write that instance's Prometheus target file (labeled with `run_id` and `step_id` — the only place those values need to exist, per the labeling note above), then launch it as a backgrounded `docker-compose run --rm --use-aliases --name <derived-name> jmeter -n -t <ramp-plan> -JTHREADS=<threads> -JDURATION=<this step's resolved duration>`.
+2. For each of that step's `instances`: derive a deterministic container name, write that instance's Prometheus target file (labeled with `run_id` and `step_id` — the only place those values need to exist, per the labeling note above), then launch it as a backgrounded `docker-compose run --rm --use-aliases --name <derived-name> jmeter -n -t <ramp-plan> -l /test-plans/results/<run_id>-<step_id>-<instance-index>.jtl -JTHREADS=<threads> -JDURATION=<this step's resolved duration>`. The `-l` result file (one per instance, per step) is what the slow-request scan in step 5 below reads from — without it, no individual-request detail exists anywhere, only the aggregates Prometheus stores.
 3. Wait for all of that step's instances to exit (they self-terminate via the scheduler once `DURATION` elapses — no external kill signal needed).
 4. Delete that step's target files.
-5. Query Prometheus (a **range** query covering `[step_start + warmup_sec, step_end]`, scoped to this `step_id` — an instant query would show nothing once the ephemeral instances are gone, per the staleness lesson from the base project) for steady-state error rate and average response time.
-6. If either exceeds the profile's `stop_rule` threshold: stop, report which step failed and why, skip remaining steps.
+5. Query Prometheus (a **range** query covering `[step_start + warmup_sec, step_end]`, scoped to this `step_id` — an instant query would show nothing once the ephemeral instances are gone, per the staleness lesson from the base project) for steady-state error rate and average response time. If `slow_request_threshold_ms` is set in the profile, also scan this step's `.jtl` files (plain CSV, already in the format the base project's result files use — `timeStamp,elapsed,label,responseCode,...`) for any row where `elapsed` exceeds the threshold, and accumulate those rows (timestamp, label, elapsed, response code) plus a running total-requests/slow-requests count across all instances in this step.
+6. If either stop-rule threshold is exceeded: stop, report which step failed and why, skip remaining steps.
 7. Otherwise, advance to the next step.
 
-At the end (whether completed in full or stopped early), print a summary table: one row per step actually run, with instances × threads × duration, measured throughput, error rate, and a response-time percentile breakdown (min, avg, stdev, P50, P75, P90, P95, P98, P99) — each pulled from Prometheus using the same step-scoped range-query approach. The percentiles come from `histogram_quantile()` against the existing `jmeter_response_time_ms` histogram's buckets (`50,100,250,500,1000,2500,5000,10000`, unchanged from the base project) — no new metric or collector is needed, only more queries at report time.
+At the end (whether completed in full or stopped early), print two things: a summary table (one row per step actually run, with instances × threads × duration, measured throughput, error rate, and a response-time percentile breakdown — min, avg, stdev, P50, P75, P90, P95, P98, P99 — each pulled from Prometheus using the same step-scoped range-query approach), and, if `slow_request_threshold_ms` was set, a slow-requests table (every individual sample that exceeded it, across all steps, with its step, timestamp, label, and actual duration) alongside a total-requests-vs-slow-requests count. The percentiles come from `histogram_quantile()` against the existing `jmeter_response_time_ms` histogram's buckets (`50,100,250,500,1000,2500,5000,10000`, unchanged from the base project) — no new metric or collector is needed for those, only more queries at report time. The slow-requests table is the one piece of this report that comes from the `.jtl` files directly rather than Prometheus, since Prometheus only ever stores aggregates, never individual-request detail.
 
 ## Testing & validation
 
@@ -153,6 +155,7 @@ At the end (whether completed in full or stopped early), print a summary table: 
 4. **Stop-rule firing correctly**: deliberately configure an unreasonably low `max_avg_response_ms` (e.g. 1ms) for one step, confirm `ramp.sh` stops after that step and does not proceed further, and that the reported reason names the actual measured value against the threshold.
 5. **Deterministic naming + `--use-aliases` compatibility**: explicitly verify (don't assume) that `docker-compose run --name <x> --use-aliases jmeter ...` works as expected before building the rest of `ramp.sh` around that assumption; if it doesn't compose cleanly, fall back to the launch-then-inspect approach noted above and update this spec.
 6. **Spike pattern (irregular, per-step duration)**: a profile with non-monotonic instance/thread counts and different `duration_sec` per step (mirroring the reference pattern — load up, down, up higher, down again), confirming each step actually runs for its own configured duration (not the top-level default) and that the summary table correctly reports each step's own duration alongside its numbers.
+7. **Slow-request detection**: run a profile against a target that can be made to occasionally respond slowly (e.g. the bundled sample services' artificial-delay support, if any, or a deliberately low `slow_request_threshold_ms` against normal traffic so some real samples legitimately exceed it), confirm the slow-requests table lists the right individual samples with correct timestamps/labels/durations, and that the total-vs-slow count matches what's actually in the `.jtl` files. Also confirm the feature cleanly does nothing (no table, no error) when `slow_request_threshold_ms` is omitted from the profile.
 
 ## Open items carried forward (not blocking this design)
 
