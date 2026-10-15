@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ramp Profile Builder</title>
+<style>
+  body { font: 14px/1.5 -apple-system, sans-serif; max-width: 50rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  label { display: block; margin-top: 0.8rem; font-weight: 600; }
+  input[type=text], input[type=number] { width: 100%; box-sizing: border-box; padding: 0.3rem; }
+  fieldset { margin-top: 1.5rem; border: 1px solid #ccc; border-radius: 6px; }
+  .step-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.5rem; align-items: end; margin: 0.5rem 0; }
+  .step-row label { margin-top: 0; font-weight: normal; font-size: 0.85rem; }
+  button { padding: 0.4rem 0.8rem; cursor: pointer; }
+  pre { background: #f5f5f5; padding: 1rem; overflow-x: auto; border-radius: 6px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Ramp Profile Builder</h1>
+<p>Generates the same YAML <code>ramp.py</code> reads directly. This is a convenience layer, not a replacement -- hand-editing the YAML always works too.</p>
+
+<label>Test plan path <small>(e.g. rest/ramp.jmx)</small></label>
+<input type="text" id="testPlan" value="rest/ramp.jmx">
+
+<label>Default step duration (seconds)</label>
+<input type="number" id="stepDuration" value="60">
+
+<label>Warm-up (seconds)</label>
+<input type="number" id="warmupSec" value="15">
+
+<label>Slow request threshold (ms, optional -- leave blank to disable)</label>
+<input type="text" id="slowThreshold" value="">
+
+<label>Max error rate (%)</label>
+<input type="number" id="maxErrorRate" value="2">
+
+<label>Max average response time (ms)</label>
+<input type="number" id="maxAvgResponse" value="3000">
+
+<fieldset>
+  <legend>Steps</legend>
+  <div id="steps"></div>
+  <button type="button" onclick="addStep()">+ Add step</button>
+</fieldset>
+
+<p><button type="button" onclick="generate()">Generate YAML</button></p>
+<pre id="output"></pre>
+
+<script>
+let stepCount = 0;
+
+function addStep(instances, threads, duration) {
+  stepCount++;
+  const div = document.createElement('div');
+  div.className = 'step-row';
+  div.id = 'step-' + stepCount;
+  div.innerHTML = `
+    <div><label>Instances</label><input type="number" class="s-instances" value="${instances ?? 1}"></div>
+    <div><label>Threads</label><input type="number" class="s-threads" value="${threads ?? 5}"></div>
+    <div><label>Duration override (sec, optional)</label><input type="text" class="s-duration" value="${duration ?? ''}"></div>
+    <div><button type="button" onclick="document.getElementById('step-${stepCount}').remove()">Remove</button></div>
+  `;
+  document.getElementById('steps').appendChild(div);
+}
+
+function escapeYamlScalar(s) {
+  return /[:#\[\]{}]/.test(s) ? JSON.stringify(s) : s;
+}
+
+function generate() {
+  const testPlan = document.getElementById('testPlan').value.trim();
+  const stepDuration = document.getElementById('stepDuration').value.trim();
+  const warmupSec = document.getElementById('warmupSec').value.trim();
+  const slowThreshold = document.getElementById('slowThreshold').value.trim();
+  const maxErrorRate = document.getElementById('maxErrorRate').value.trim();
+  const maxAvgResponse = document.getElementById('maxAvgResponse').value.trim();
+
+  let yaml = `test_plan: ${escapeYamlScalar(testPlan)}\n`;
+  yaml += `step_duration_sec: ${stepDuration}\n`;
+  yaml += `warmup_sec: ${warmupSec}\n`;
+  if (slowThreshold) {
+    yaml += `slow_request_threshold_ms: ${slowThreshold}\n`;
+  }
+  yaml += `stop_rule:\n`;
+  yaml += `  max_error_rate_pct: ${maxErrorRate}\n`;
+  yaml += `  max_avg_response_ms: ${maxAvgResponse}\n`;
+  yaml += `steps:\n`;
+
+  const rows = document.querySelectorAll('.step-row');
+  rows.forEach(row => {
+    const instances = row.querySelector('.s-instances').value.trim();
+    const threads = row.querySelector('.s-threads').value.trim();
+    const duration = row.querySelector('.s-duration').value.trim();
+    yaml += `  - instances: ${instances}\n`;
+    yaml += `    threads: ${threads}\n`;
+    if (duration) {
+      yaml += `    duration_sec: ${duration}\n`;
+    }
+  });
+
+  document.getElementById('output').textContent = yaml;
+}
+
+addStep(1, 5);
+addStep(2, 5);
+</script>
+</body>
+</html>
