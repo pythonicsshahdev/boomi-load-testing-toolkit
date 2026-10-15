@@ -90,7 +90,7 @@
       "title": "Error Rate",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 4 },
       "targets": [
         {
           "expr": "100 * sum(rate(jmeter_failures_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m])) / sum(rate(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m]))",
@@ -121,17 +121,18 @@
     },
     {
       "id": 9,
-      "title": "p50 Response Time",
+      "title": "Throughput (TPS)",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 4 },
+      "description": "Transactions per second -- each flow's first request (GET Customers List / GraphQL Customer List / SOAP Add 5+7) fires exactly once per iteration, so its rate is a direct count of completed iterations, distinct from Throughput (RPS) which counts every individual request in the flow.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(jmeter_response_time_ms_bucket{run_id=~\"$run_id\", step_id=~\"$step_id\"}[5m])) by (le))",
+          "expr": "sum(rate(jmeter_requests_total{run_id=~\"$run_id\", step_id=~\"$step_id\", label=~\"GET Customers List|GraphQL Customer List|SOAP Add 5\\\\+7\"}[1m]))",
           "refId": "A"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 } },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 1 } },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "colorMode": "value",
