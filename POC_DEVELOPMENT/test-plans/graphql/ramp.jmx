@@ -143,6 +143,30 @@
               <stringProp name="listener.collector.listen_to">samples</stringProp>
               <stringProp name="listener.collector.measuring">FailureTotal</stringProp>
             </elementProp>
+            <elementProp name="" elementType="com.github.johrstrom.listener.ListenerCollectorConfig">
+              <stringProp name="collector.help">JMeter connect time in milliseconds</stringProp>
+              <stringProp name="collector.metric_name">jmeter_connect_time_ms</stringProp>
+              <stringProp name="collector.type">HISTOGRAM</stringProp>
+              <collectionProp name="collector.labels">
+                <stringProp name="1">label</stringProp>
+                <stringProp name="2">code</stringProp>
+              </collectionProp>
+              <stringProp name="collector.quantiles_or_buckets">50,100,250,500,1000,2500,5000,10000</stringProp>
+              <stringProp name="listener.collector.listen_to">samples</stringProp>
+              <stringProp name="listener.collector.measuring">ConnectTime</stringProp>
+            </elementProp>
+            <elementProp name="" elementType="com.github.johrstrom.listener.ListenerCollectorConfig">
+              <stringProp name="collector.help">JMeter latency (time to first byte) in milliseconds</stringProp>
+              <stringProp name="collector.metric_name">jmeter_latency_ms</stringProp>
+              <stringProp name="collector.type">HISTOGRAM</stringProp>
+              <collectionProp name="collector.labels">
+                <stringProp name="1">label</stringProp>
+                <stringProp name="2">code</stringProp>
+              </collectionProp>
+              <stringProp name="collector.quantiles_or_buckets">50,100,250,500,1000,2500,5000,10000</stringProp>
+              <stringProp name="listener.collector.listen_to">samples</stringProp>
+              <stringProp name="listener.collector.measuring">Latency</stringProp>
+            </elementProp>
           </collectionProp>
         </com.github.johrstrom.listener.PrometheusListener>
         <hashTree/>
