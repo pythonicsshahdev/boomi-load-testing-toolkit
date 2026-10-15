@@ -2,6 +2,7 @@
 """Distributed ramp/spike load orchestrator for the Boomi performance testing stack."""
 import csv
 import json
+import signal
 import subprocess
 import sys
 import time
@@ -15,6 +16,32 @@ REPO_ROOT = Path(__file__).resolve().parent
 TARGETS_DIR = REPO_ROOT / "prometheus" / "targets"
 RESULTS_DIR = REPO_ROOT / "test-plans" / "results"
 PROMETHEUS_URL = "http://localhost:9090"
+
+_current_step_state = {"run_id": None, "step_id": None, "instances": 0}
+
+
+def _cleanup_current_step():
+    run_id = _current_step_state["run_id"]
+    step_id = _current_step_state["step_id"]
+    instances = _current_step_state["instances"]
+    if not run_id:
+        return
+    print(f"\nCleaning up {step_id}: stopping {instances} instance(s)...", file=sys.stderr)
+    for idx in range(1, instances + 1):
+        name = derive_instance_name(run_id, step_id, idx)
+        subprocess.run(["docker", "stop", name], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        delete_target_file(run_id, step_id, idx)
+
+
+def _handle_interrupt(signum, frame):
+    _cleanup_current_step()
+    print("Interrupted. Prior steps' results remain in Prometheus; no summary report is printed for an interrupted run.", file=sys.stderr)
+    sys.exit(130)
+
+
+signal.signal(signal.SIGINT, _handle_interrupt)
+signal.signal(signal.SIGTERM, _handle_interrupt)
 
 
 def prom_instant_query(promql, at_unix_time):
@@ -259,11 +286,16 @@ def run_step(profile, run_id, step_idx, step):
     threads = step["threads"]
     print(f"[{step_id}] launching {instances} instance(s) x {threads} thread(s), duration={duration}s")
 
+    _current_step_state["run_id"] = run_id
+    _current_step_state["step_id"] = step_id
+    _current_step_state["instances"] = instances
+
     procs = []
     for idx in range(1, instances + 1):
         procs.append(launch_instance(profile["test_plan"], run_id, step_id, idx, threads, duration))
 
     exit_codes = [p.wait() for p in procs]
+    _current_step_state["run_id"] = None
     for idx in range(1, instances + 1):
         delete_target_file(run_id, step_id, idx)
 
