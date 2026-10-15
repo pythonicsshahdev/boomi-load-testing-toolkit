@@ -16,7 +16,29 @@ REPO_ROOT = Path(__file__).resolve().parent
 TARGETS_DIR = REPO_ROOT / "prometheus" / "targets"
 RESULTS_DIR = REPO_ROOT / "test-plans" / "results"
 PROMETHEUS_URL = "http://localhost:9090"
+GRAFANA_URL = "http://localhost:3004"
+GRAFANA_AUTH = ("admin", "admin")
 CONFIRMATION_THRESHOLD = 4
+
+
+def post_grafana_annotation(text, tags, at_unix_time=None):
+    if at_unix_time is None:
+        at_unix_time = time.time()
+    payload = json.dumps({
+        "time": int(at_unix_time * 1000),
+        "tags": tags,
+        "text": text,
+    }).encode()
+    req = urllib.request.Request(f"{GRAFANA_URL}/api/annotations", data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    credentials = f"{GRAFANA_AUTH[0]}:{GRAFANA_AUTH[1]}"
+    import base64
+    req.add_header("Authorization", "Basic " + base64.b64encode(credentials.encode()).decode())
+    try:
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+    except Exception as e:
+        print(f"Warning: failed to post Grafana annotation: {e}", file=sys.stderr)
 
 _current_step_state = {"run_id": None, "step_id": None, "instances": 0}
 
@@ -292,6 +314,8 @@ def run_step(profile, run_id, step_idx, step):
     _current_step_state["step_id"] = step_id
     _current_step_state["instances"] = instances
 
+    post_grafana_annotation(f"{step_id} started: {instances} instance(s) x {threads} thread(s)", ["ramp", run_id, step_id])
+
     procs = []
     names = []
     for idx in range(1, instances + 1):
@@ -308,6 +332,7 @@ def run_step(profile, run_id, step_idx, step):
               f"limits, not the target's.", file=sys.stderr)
 
     exit_codes = [p.wait() for p in procs]
+    post_grafana_annotation(f"{step_id} ended", ["ramp", run_id, step_id])
     _current_step_state["run_id"] = None
     for idx in range(1, instances + 1):
         delete_target_file(run_id, step_id, idx)
