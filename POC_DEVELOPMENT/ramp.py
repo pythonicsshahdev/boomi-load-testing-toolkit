@@ -72,6 +72,69 @@ def evaluate_stop_rule(profile, run_id, step_id, step_start, step_end, warmup_se
     return False, None
 
 
+def query_report_rows(run_id, step_id, step_start, step_end, warmup_sec):
+    """One row per sampler label seen in this step, in JMeter's own
+    Aggregate Report column convention."""
+    window_start = step_start + warmup_sec
+    window_sec = max(step_end - window_start, 1)
+
+    labels_resp = prom_instant_query(
+        f'group by (label) (jmeter_requests_total{{run_id="{run_id}", step_id="{step_id}"}})',
+        step_end,
+    )
+    labels = sorted(r["metric"]["label"] for r in labels_resp.get("data", {}).get("result", []))
+
+    rows = []
+    for label in labels:
+        sel = f'run_id="{run_id}", step_id="{step_id}", label="{label}"'
+
+        samples = _first_value(prom_instant_query(f'increase(jmeter_requests_total{{{sel}}}[{window_sec}s])', step_end))
+        failures = _first_value(prom_instant_query(f'increase(jmeter_failures_total{{{sel}}}[{window_sec}s])', step_end))
+        error_pct = (100.0 * failures / samples) if samples > 0 else 0.0
+        throughput = samples / window_sec if window_sec > 0 else 0.0
+
+        avg_ms = _first_value(prom_instant_query(
+            f'increase(jmeter_response_time_ms_sum{{{sel}}}[{window_sec}s]) / increase(jmeter_response_time_ms_count{{{sel}}}[{window_sec}s])',
+            step_end,
+        ))
+        median_ms = _first_value(prom_instant_query(
+            f'histogram_quantile(0.50, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', step_end))
+        p90_ms = _first_value(prom_instant_query(
+            f'histogram_quantile(0.90, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', step_end))
+        p95_ms = _first_value(prom_instant_query(
+            f'histogram_quantile(0.95, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', step_end))
+        p99_ms = _first_value(prom_instant_query(
+            f'histogram_quantile(0.99, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', step_end))
+
+        rows.append({
+            "step_id": step_id,
+            "label": label,
+            "samples": int(samples),
+            "avg_ms": avg_ms,
+            "median_ms": median_ms,
+            "p90_ms": p90_ms,
+            "p95_ms": p95_ms,
+            "p99_ms": p99_ms,
+            "error_pct": error_pct,
+            "throughput": throughput,
+        })
+    return rows
+
+
+def print_summary_report(all_rows):
+    print()
+    print("=== Summary Report ===")
+    header = f"{'Step':<10} {'Label':<28} {'Samples':>8} {'Avg':>8} {'Median':>8} {'90%':>8} {'95%':>8} {'99%':>8} {'Error%':>8} {'Thrpt':>8}"
+    print(header)
+    print("-" * len(header))
+    for row in all_rows:
+        print(
+            f"{row['step_id']:<10} {row['label']:<28} {row['samples']:>8} "
+            f"{row['avg_ms']:>8.0f} {row['median_ms']:>8.0f} {row['p90_ms']:>8.0f} "
+            f"{row['p95_ms']:>8.0f} {row['p99_ms']:>8.0f} {row['error_pct']:>7.1f}% {row['throughput']:>7.2f}/s"
+        )
+
+
 def load_profile(path):
     with open(path) as f:
         return yaml.safe_load(f)
@@ -210,6 +273,11 @@ def main():
     for r in step_results:
         status = "OK" if all(c == 0 for c in r["exit_codes"]) else "HAD FAILURES"
         print(f"  {r['step_id']}: {r['instances_launched']} instance(s), exit codes {r['exit_codes']} [{status}]")
+
+    all_rows = []
+    for r in step_results:
+        all_rows.extend(query_report_rows(run_id, r["step_id"], r["step_start"], r["step_end"], warmup_sec))
+    print_summary_report(all_rows)
 
 
 if __name__ == "__main__":
