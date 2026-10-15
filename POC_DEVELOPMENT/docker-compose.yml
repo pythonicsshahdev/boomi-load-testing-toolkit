@@ -20,6 +20,29 @@ services:
         required: false
     profiles: ["tools"]
 
+  # Identical to jmeter, but under its own service name/alias. ramp.py's
+  # launch_instance() uses --use-aliases (required for Prometheus's
+  # file-based discovery of its deterministic container name), which also
+  # registers the container under this service's own alias. If ramp
+  # instances ran under the "jmeter" service itself, that alias would
+  # collide with the base project's static `jmeter:9270` scrape target,
+  # and Prometheus's DNS round-robin between whichever ramp container
+  # happened to be up would corrupt that job's counter with a
+  # non-monotonic, unattributable series (no run_id/step_id labels).
+  # A separate service name keeps the two scrape jobs permanently distinct.
+  jmeter-ramp:
+    build:
+      context: ./jmeter
+    image: boomi-jmeter:dev
+    networks:
+      - perf-test-net
+    volumes:
+      - ./test-plans:/test-plans
+    env_file:
+      - path: .env
+        required: false
+    profiles: ["tools"]
+
   jmeter-gui:
     build:
       context: ./jmeter-gui

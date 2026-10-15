@@ -77,11 +77,18 @@ signal.signal(signal.SIGTERM, _handle_interrupt)
 def prom_instant_query(promql, at_unix_time):
     """Instant query evaluated AT a specific past timestamp (not 'now') --
     this avoids Prometheus staleness marking affecting results for targets
-    that have since disappeared, which plain 'now' queries are vulnerable to."""
+    that have since disappeared, which plain 'now' queries are vulnerable to.
+    Degrades to an empty result vector (never raises) if Prometheus is
+    unreachable or errors -- a report-time query failure must not crash a
+    run whose actual load generation already completed successfully."""
     params = urllib.parse.urlencode({"query": promql, "time": at_unix_time})
     url = f"{PROMETHEUS_URL}/api/v1/query?{params}"
-    with urllib.request.urlopen(url, timeout=10) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return json.loads(resp.read())
+    except Exception as e:
+        print(f"Warning: Prometheus query failed ({e}): {promql!r}", file=sys.stderr)
+        return {"status": "error", "data": {"resultType": "vector", "result": []}}
 
 
 def _first_value(prom_response, default=0.0):
@@ -144,17 +151,27 @@ def query_report_rows(run_id, step_id, step_start, step_end, warmup_sec):
     )
     labels = sorted(r["metric"]["label"] for r in labels_resp.get("data", {}).get("result", []))
 
+    if not labels:
+        print(f"[{step_id}] WARNING: no Prometheus data found for this step in the window "
+              f"ending at {query_time} -- reporting as NO DATA rather than omitting it.", file=sys.stderr)
+        return [{
+            "step_id": step_id, "label": "(no data)", "samples": 0,
+            "avg_ms": 0.0, "median_ms": 0.0, "p90_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0,
+            "error_pct": 0.0, "throughput": 0.0,
+        }]
+
     rows = []
     for label in labels:
         sel = f'run_id="{run_id}", step_id="{step_id}", label="{label}"'
 
-        samples = _first_value(prom_instant_query(f'increase(jmeter_requests_total{{{sel}}}[{window_sec}s])', query_time))
-        failures = _first_value(prom_instant_query(f'increase(jmeter_failures_total{{{sel}}}[{window_sec}s])', query_time))
+        samples = _first_value(prom_instant_query(f'sum(increase(jmeter_requests_total{{{sel}}}[{window_sec}s]))', query_time))
+        failures = _first_value(prom_instant_query(f'sum(increase(jmeter_failures_total{{{sel}}}[{window_sec}s]))', query_time))
         error_pct = (100.0 * failures / samples) if samples > 0 else 0.0
         throughput = samples / window_sec if window_sec > 0 else 0.0
 
         avg_ms = _first_value(prom_instant_query(
-            f'increase(jmeter_response_time_ms_sum{{{sel}}}[{window_sec}s]) / increase(jmeter_response_time_ms_count{{{sel}}}[{window_sec}s])',
+            f'sum(increase(jmeter_response_time_ms_sum{{{sel}}}[{window_sec}s])) '
+            f'/ sum(increase(jmeter_response_time_ms_count{{{sel}}}[{window_sec}s]))',
             query_time,
         ))
         median_ms = _first_value(prom_instant_query(
@@ -237,13 +254,19 @@ def load_profile(path):
 def validate_profile(profile):
     """Returns a list of human-readable problems. Empty list means valid."""
     errors = []
+    if not isinstance(profile, dict):
+        return [f"profile must be a YAML mapping (top-level keys like test_plan/steps), got {type(profile).__name__}"]
     if not profile.get("test_plan"):
         errors.append("missing required key: test_plan")
+    has_profile_duration = "step_duration_sec" in profile and isinstance(profile["step_duration_sec"], (int, float)) and profile["step_duration_sec"] >= 1
     if not profile.get("steps"):
         errors.append("steps list is missing or empty")
     else:
         for i, step in enumerate(profile["steps"]):
             label = f"steps[{i}]"
+            if not isinstance(step, dict):
+                errors.append(f"{label}: must be a mapping (instances/threads/...), got {type(step).__name__}")
+                continue
             if "instances" not in step:
                 errors.append(f"{label}: missing 'instances'")
             elif not isinstance(step["instances"], int) or step["instances"] < 1:
@@ -252,11 +275,24 @@ def validate_profile(profile):
                 errors.append(f"{label}: missing 'threads'")
             elif not isinstance(step["threads"], int) or step["threads"] < 1:
                 errors.append(f"{label}: 'threads' must be a positive integer, got {step.get('threads')!r}")
-            if "duration_sec" in step and (not isinstance(step["duration_sec"], int) or step["duration_sec"] < 1):
+            has_step_duration = "duration_sec" in step and isinstance(step["duration_sec"], (int, float)) and step["duration_sec"] >= 1
+            if "duration_sec" in step and not has_step_duration:
                 errors.append(f"{label}: 'duration_sec' must be a positive integer, got {step['duration_sec']!r}")
-    if "step_duration_sec" in profile and (not isinstance(profile["step_duration_sec"], int) or profile["step_duration_sec"] < 1):
+            elif not has_step_duration and not has_profile_duration:
+                errors.append(f"{label}: no duration -- set 'duration_sec' on this step or a valid "
+                               f"'step_duration_sec' at the top level")
+    if "step_duration_sec" in profile and not has_profile_duration:
         errors.append(f"step_duration_sec must be a positive integer, got {profile['step_duration_sec']!r}")
+    if "warmup_sec" in profile and (not isinstance(profile["warmup_sec"], (int, float)) or profile["warmup_sec"] < 0):
+        errors.append(f"warmup_sec must be a non-negative number, got {profile['warmup_sec']!r}")
+    if "slow_request_threshold_ms" in profile and (
+        not isinstance(profile["slow_request_threshold_ms"], (int, float)) or profile["slow_request_threshold_ms"] <= 0
+    ):
+        errors.append(f"slow_request_threshold_ms must be a positive number, got {profile['slow_request_threshold_ms']!r}")
     stop_rule = profile.get("stop_rule", {})
+    if not isinstance(stop_rule, dict):
+        errors.append(f"stop_rule must be a mapping, got {type(stop_rule).__name__}")
+        stop_rule = {}
     if "max_error_rate_pct" in stop_rule:
         v = stop_rule["max_error_rate_pct"]
         if not isinstance(v, (int, float)) or not (0 <= v <= 100):
@@ -304,7 +340,7 @@ def launch_instance(test_plan, run_id, step_id, idx, threads, duration):
     cmd = [
         "docker-compose", "run", "--rm", "--use-aliases",
         "--name", container_name,
-        "jmeter", "-n", "-t", f"/test-plans/{test_plan}",
+        "jmeter-ramp", "-n", "-t", f"/test-plans/{test_plan}",
         "-l", result_file,
         f"-JTHREADS={threads}",
         f"-JDURATION={duration}",
@@ -353,12 +389,23 @@ def run_step(profile, run_id, step_idx, step):
     return {"step_id": step_id, "instances_launched": instances, "exit_codes": exit_codes, "saturated": saturated}
 
 
-def confirm_large_step(step, step_id, test_plan, skip_confirmation):
-    if step["instances"] <= CONFIRMATION_THRESHOLD:
+def confirm_large_steps(profile, skip_confirmation):
+    """Pre-scans every step before anything launches, so an oversized step
+    buried later in the profile (e.g. step 4 of 5, as in
+    rest-spike-example.yaml) still blocks before step 1 ever runs --
+    checking per-step inside the run loop would let earlier steps generate
+    real load first and defeat the point of the gate."""
+    large_steps = [
+        (i + 1, step["instances"])
+        for i, step in enumerate(profile["steps"])
+        if step["instances"] > CONFIRMATION_THRESHOLD
+    ]
+    if not large_steps:
         return
+    lines = "\n".join(f"  step-{idx:02d}: {instances} instances" for idx, instances in large_steps)
     message = (
-        f"\n{step_id} launches {step['instances']} simultaneous instances "
-        f"(> {CONFIRMATION_THRESHOLD}) against test plan '{test_plan}'. "
+        f"\nThis profile launches more than {CONFIRMATION_THRESHOLD} simultaneous instances "
+        f"in at least one step, against test plan '{profile['test_plan']}':\n{lines}\n"
         f"This generates real load -- make sure that's intentional.\n"
     )
     if skip_confirmation:
@@ -419,12 +466,13 @@ def main():
         print(f"Profile is valid: {len(profile['steps'])} step(s), test_plan={profile['test_plan']!r}")
         sys.exit(0)
 
+    confirm_large_steps(profile, skip_confirmation)
+
     run_id = time.strftime("%Y%m%d-%H%M%S")
     warmup_sec = profile.get("warmup_sec", 0)
     step_results = []
+    stop_rule_triggered = False
     for step_idx, step in enumerate(profile["steps"]):
-        step_id_preview = f"step-{step_idx + 1:02d}"
-        confirm_large_step(step, step_id_preview, profile["test_plan"], skip_confirmation)
         step_start = int(time.time())
         result = run_step(profile, run_id, step_idx, step)
         step_end = int(time.time())
@@ -435,6 +483,7 @@ def main():
         should_stop, reason = evaluate_stop_rule(profile, run_id, result["step_id"], step_start, step_end, warmup_sec)
         if should_stop:
             print(f"[{result['step_id']}] STOP RULE TRIGGERED: {reason}", file=sys.stderr)
+            stop_rule_triggered = True
             break
 
     print(f"Done. run_id={run_id}")
@@ -456,6 +505,12 @@ def main():
     if slow_threshold:
         total_requests = sum(row["samples"] for row in all_rows)
         print_slow_requests_table(all_slow, total_requests)
+
+    any_instance_failed = any(code != 0 for r in step_results for code in r["exit_codes"])
+    if stop_rule_triggered:
+        sys.exit(2)
+    if any_instance_failed:
+        sys.exit(3)
 
 
 if __name__ == "__main__":

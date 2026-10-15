@@ -66,6 +66,73 @@ but exports zero metrics, with no error anywhere. This was the single most
 expensive thing to track down while building this stack; `run-test.sh`
 already includes the flag.
 
+## Running a distributed ramp/spike test
+
+`ramp.sh` drives multiple parallel JMeter instances per step (ramp: a monotonic
+increase; spike: an irregular up-and-down pattern — both are the same
+mechanism, just different profiles), with automatic stop-on-threshold and a
+JMeter-native per-label summary report. Separate from `run-test.sh`'s
+single-shot starters.
+
+One-time setup (creates its own virtualenv, kept separate from the rest of
+this project since it's Python, not JMeter):
+
+```bash
+python3.14 -m venv .venv-ramp
+source .venv-ramp/bin/activate
+pip install -r requirements-ramp.txt
+```
+
+Then:
+
+```bash
+./ramp.sh ramp-profiles/rest-ramp-example.yaml      # a 4-step monotonic ramp
+./ramp.sh --yes ramp-profiles/rest-spike-example.yaml  # a 5-step spike pattern
+```
+
+A profile is a YAML file (see `ramp-profiles/*.yaml` for more examples, or
+build one visually in `ramp-profile-builder.html` — open it directly in a
+browser, no server needed):
+
+```yaml
+test_plan: rest/ramp.jmx       # or graphql/ramp.jmx, soap/ramp.jmx
+step_duration_sec: 30          # default duration for steps that don't override it
+warmup_sec: 5                  # excluded from every step's reported metrics
+slow_request_threshold_ms: 2000  # optional; omit to disable slow-request detection
+stop_rule:
+  max_error_rate_pct: 2
+  max_avg_response_ms: 3000
+steps:
+  - instances: 1
+    threads: 5
+  - instances: 4
+    threads: 10
+    duration_sec: 60          # optional per-step override of step_duration_sec
+```
+
+Run `./ramp.sh --validate <profile.yaml>` first to check a profile without
+launching anything. Above 4 simultaneous instances in any step, `ramp.sh`
+asks for confirmation before launching anything (not just before the large
+step) — pass `--yes` to skip this for unattended use.
+
+Exit codes: `0` clean run, `2` the stop rule triggered, `3` at least one
+instance exited non-zero. The summary report still prints in all three cases.
+
+Results land in `test-plans/results/<run_id>-<step_id>-<idx>.jtl` (same
+gitignored pattern as the starters' `.jtl` files); Grafana gets a
+start/end annotation for every step (`http://localhost:3004`, same
+`admin`/`admin` login), visible on the existing JMeter Overview dashboard.
+
+Ramp instances run under their own compose service, `jmeter-ramp` — a
+deliberate duplicate of the `jmeter` service under a different name/alias,
+so the two scrape jobs in `prometheus.yml` (the starters' static `jmeter`
+job and the ramp instances' file-based-discovery `jmeter-ramp` job) can
+never resolve to each other's containers via `--use-aliases`.
+
+Like the starters, `test-plans/{rest,graphql,soap}/ramp.jmx` already omit
+the 15-second pause mentioned below — they're built to loop for their
+configured duration, not for a single quick demo.
+
 ## Credentials
 
 Copy the `BOOMI_TEST_TARGET_*` variables from `.env.example` into
