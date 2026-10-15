@@ -1,4 +1,4 @@
-# Distributed Ramp Load Generation — Design
+# Distributed Ramp & Spike Load Generation — Design
 
 **Status:** Approved design, pending implementation plan
 **Date:** 2026-10-14
@@ -13,12 +13,14 @@ The existing stack runs exactly one JMeter instance at a time, as a one-shot `do
 
 **Ramp dimensions:** both the number of parallel JMeter instances and the thread count per instance are independently configurable per step (not just one or the other), confirmed explicitly during brainstorming.
 
+**Ramp and spike are the same mechanism, not two features.** Mid-review, the user shared reference material from a prior engagement (US Foods): a "spike testing" pattern — TPS deliberately bouncing up and down across irregularly-sized segments (20min, 10min, 15min, etc.) within one run, rather than monotonically increasing — plus examples of richer percentile-based reporting (P50/75/90/95/98/99, min/avg/stdev) and per-instance JVM heap tracking. A classic ramp (steadily increasing load) and a spike test (irregular up/down bursts) are both just "a sequence of steps with instances/threads/duration," so the same YAML schema and `ramp.sh` mechanism support both — the only change needed is making `duration_sec` overridable per step instead of one global value for every step. JVM heap tracking for the target system is noted as a future idea (see Non-goals) but not built in this round, since it depends on what's actually instrumentable on the target (real Boomi runtimes expose JVM metrics differently than this project's bundled sample services).
+
 ## Goals
 
 1. Run **multiple JMeter instances in parallel**, all tagged with the same `run_id`, generating load against the same target simultaneously — with each instance's metrics individually visible in Prometheus/Grafana (not blended into a single series), so per-instance fairness/behavior can be inspected if needed.
-2. Support a **ramp profile**: an ordered sequence of steps, each specifying an instance count and a thread-count-per-instance, run for a configured duration. Both dimensions may change between steps.
+2. Support a **ramp/spike profile**: an ordered sequence of steps, each specifying an instance count, a thread-count-per-instance, and its own duration. All three may change freely between steps — including decreasing — so the same mechanism expresses a classic monotonic ramp or an irregular spike-test pattern (load bouncing up and down across variable-length segments).
 3. **Stop automatically** if a step's steady-state (post-warm-up) error rate or average response time exceeds a configured threshold, rather than running the full profile regardless of what the target can handle.
-4. Produce a **summary report** at the end (one row per step: instances × threads, throughput, avg/p95 response time, error rate) pulled from Prometheus — not something the user has to piece together from the Grafana dashboard by hand.
+4. Produce a **summary report** at the end — one row per step (instances × threads × duration, throughput, error rate) with a full percentile breakdown (min, avg, stdev, P50/75/90/95/98/99) for response time, pulled from Prometheus — not something the user has to piece together from the Grafana dashboard by hand.
 5. Keep the **single-machine launcher** (this spec's actual deliverable) as thin and swappable as possible, so a VM-cluster or Kubernetes launcher can reuse the same core mechanism later without redesigning it.
 6. Offer **two ways to build a ramp profile**: hand-editing a YAML file directly (the baseline, "developer" path), or a lightweight static HTML form that generates the same YAML (a convenience layer, not a replacement) — mirroring the dual-authoring-path pattern already established for `.jmx` test plans in the base project.
 
@@ -29,6 +31,7 @@ The existing stack runs exactly one JMeter instance at a time, as a one-shot `do
 - **Real Boomi target integration and CI/CD.** Separate sub-projects, each getting its own spec.
 - **A full web UI/backend for ramp-profile authoring.** Only a static, backend-less HTML page that generates a YAML file for the user to save — not a hosted service with its own state.
 - **Cross-run historical comparison dashboards specific to ramp data** beyond what the existing Grafana dashboard and `run_id`/`step_id` labels already provide. A dedicated ramp-results Grafana panel is a reasonable follow-up, not built here.
+- **JVM heap (or other target-side system metrics) tracking.** Reference material shared during spec review showed this alongside client-side percentiles as a mature-setup example, but instrumenting it depends entirely on what the target under test actually exposes — the bundled sample services aren't JVM-based at all, and a real Boomi runtime's JVM metrics are a question for the real-Boomi-target-integration sub-project, not this one. Noted as a future idea, not designed or built here.
 
 ## Architecture
 
@@ -69,7 +72,7 @@ A small YAML file, passed to `ramp.sh` by path (e.g. `./ramp.sh ramp-profiles/re
 
 ```yaml
 test_plan: rest/starter.jmx
-step_duration_sec: 60
+step_duration_sec: 60      # default duration; any step below may override it
 warmup_sec: 15
 stop_rule:
   max_error_rate_pct: 2
@@ -85,7 +88,35 @@ steps:
     threads: 10
 ```
 
-`warmup_sec` excludes that portion of each step's window from both the stop-rule evaluation and the final summary report — the raw samples still land in Prometheus untouched; they're simply excluded from the "steady-state" numbers that decide whether to proceed, matching the reasoning the separate `perf/` project already uses for the same purpose.
+A spike-test profile uses the identical schema — only the step sequence and per-step `duration_sec` differ, expressing the US Foods-style pattern directly:
+
+```yaml
+test_plan: rest/starter.jmx
+step_duration_sec: 600     # default; overridden per step below to match
+                           # the irregular segment lengths of a real spike test
+warmup_sec: 15
+stop_rule:
+  max_error_rate_pct: 5
+  max_avg_response_ms: 5000
+steps:
+  - instances: 1
+    threads: 10
+    duration_sec: 1200     # 20 mins
+  - instances: 2
+    threads: 10
+    duration_sec: 600      # 10 mins
+  - instances: 4
+    threads: 10
+    duration_sec: 900      # 15 mins
+  - instances: 8
+    threads: 10
+    duration_sec: 1200     # 20 mins — the spike
+  - instances: 2
+    threads: 10
+    duration_sec: 600      # 10 mins — back down
+```
+
+`duration_sec` on an individual step overrides the top-level `step_duration_sec` default for that step only — this is the one schema addition needed to cover both ramp and spike patterns with the same mechanism. `warmup_sec` excludes that portion of each step's window from both the stop-rule evaluation and the final summary report — the raw samples still land in Prometheus untouched; they're simply excluded from the "steady-state" numbers that decide whether to proceed, matching the reasoning the separate `perf/` project already uses for the same purpose.
 
 **Two ways to build this file:** hand-edit the YAML directly (always available, no extra tooling — the "developer option"), or use a lightweight static HTML page (no backend, similar in spirit to earlier reference pages built for this project) with form fields for steps/thresholds/durations that generates the same YAML content for the user to save. The HTML form is a convenience layer on top of the YAML format, not a replacement for it — both paths produce and consume the identical file.
 
@@ -104,15 +135,15 @@ Everything else (HTTP Request Defaults, Authorization/Header Manager using `${__
 
 For each step in the YAML, in order:
 
-1. Generate a `step_id` (e.g. `step-01`, `step-02`, ...).
-2. For each of that step's `instances`: derive a deterministic container name, write that instance's Prometheus target file (labeled with `run_id` and `step_id` — the only place those values need to exist, per the labeling note above), then launch it as a backgrounded `docker-compose run --rm --use-aliases --name <derived-name> jmeter -n -t <ramp-plan> -JTHREADS=<threads> -JDURATION=<step_duration_sec>`.
+1. Generate a `step_id` (e.g. `step-01`, `step-02`, ...). Resolve this step's effective duration: its own `duration_sec` if set, otherwise the profile's top-level `step_duration_sec`.
+2. For each of that step's `instances`: derive a deterministic container name, write that instance's Prometheus target file (labeled with `run_id` and `step_id` — the only place those values need to exist, per the labeling note above), then launch it as a backgrounded `docker-compose run --rm --use-aliases --name <derived-name> jmeter -n -t <ramp-plan> -JTHREADS=<threads> -JDURATION=<this step's resolved duration>`.
 3. Wait for all of that step's instances to exit (they self-terminate via the scheduler once `DURATION` elapses — no external kill signal needed).
 4. Delete that step's target files.
 5. Query Prometheus (a **range** query covering `[step_start + warmup_sec, step_end]`, scoped to this `step_id` — an instant query would show nothing once the ephemeral instances are gone, per the staleness lesson from the base project) for steady-state error rate and average response time.
 6. If either exceeds the profile's `stop_rule` threshold: stop, report which step failed and why, skip remaining steps.
 7. Otherwise, advance to the next step.
 
-At the end (whether completed in full or stopped early), print a summary table: one row per step actually run, with instances × threads, measured throughput, avg/p95 response time, and error rate, each pulled from Prometheus using the same step-scoped range-query approach.
+At the end (whether completed in full or stopped early), print a summary table: one row per step actually run, with instances × threads × duration, measured throughput, error rate, and a response-time percentile breakdown (min, avg, stdev, P50, P75, P90, P95, P98, P99) — each pulled from Prometheus using the same step-scoped range-query approach. The percentiles come from `histogram_quantile()` against the existing `jmeter_response_time_ms` histogram's buckets (`50,100,250,500,1000,2500,5000,10000`, unchanged from the base project) — no new metric or collector is needed, only more queries at report time.
 
 ## Testing & validation
 
@@ -121,6 +152,7 @@ At the end (whether completed in full or stopped early), print a summary table: 
 3. **Full ramp profile, small scale**: a 2-step profile (e.g. 1 instance/5 threads, then 2 instances/5 threads) against a bundled sample target, confirming the summary table's per-step numbers are plausible and that `step_id` genuinely distinguishes the two steps in Prometheus (same technique used to verify `run_id` differentiation in the base project).
 4. **Stop-rule firing correctly**: deliberately configure an unreasonably low `max_avg_response_ms` (e.g. 1ms) for one step, confirm `ramp.sh` stops after that step and does not proceed further, and that the reported reason names the actual measured value against the threshold.
 5. **Deterministic naming + `--use-aliases` compatibility**: explicitly verify (don't assume) that `docker-compose run --name <x> --use-aliases jmeter ...` works as expected before building the rest of `ramp.sh` around that assumption; if it doesn't compose cleanly, fall back to the launch-then-inspect approach noted above and update this spec.
+6. **Spike pattern (irregular, per-step duration)**: a profile with non-monotonic instance/thread counts and different `duration_sec` per step (mirroring the reference pattern — load up, down, up higher, down again), confirming each step actually runs for its own configured duration (not the top-level default) and that the summary table correctly reports each step's own duration alongside its numbers.
 
 ## Open items carried forward (not blocking this design)
 
