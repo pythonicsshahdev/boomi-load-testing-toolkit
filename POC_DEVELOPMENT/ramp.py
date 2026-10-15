@@ -96,6 +96,28 @@ def launch_instance(test_plan, run_id, step_id, idx, threads, duration):
     return subprocess.Popen(cmd, cwd=REPO_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def run_step(profile, run_id, step_idx, step):
+    step_id = f"step-{step_idx + 1:02d}"
+    duration = resolve_step_duration(profile, step)
+    instances = step["instances"]
+    threads = step["threads"]
+    print(f"[{step_id}] launching {instances} instance(s) x {threads} thread(s), duration={duration}s")
+
+    procs = []
+    for idx in range(1, instances + 1):
+        procs.append(launch_instance(profile["test_plan"], run_id, step_id, idx, threads, duration))
+
+    exit_codes = [p.wait() for p in procs]
+    for idx in range(1, instances + 1):
+        delete_target_file(run_id, step_id, idx)
+
+    failed = [i + 1 for i, code in enumerate(exit_codes) if code != 0]
+    if failed:
+        print(f"[{step_id}] WARNING: instance(s) {failed} exited non-zero: {exit_codes}", file=sys.stderr)
+
+    return {"step_id": step_id, "instances_launched": instances, "exit_codes": exit_codes}
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: ramp.py <profile.yaml>", file=sys.stderr)
@@ -110,15 +132,15 @@ def main():
         sys.exit(1)
 
     run_id = time.strftime("%Y%m%d-%H%M%S")
-    step = profile["steps"][0]
-    step_id = "step-01"
-    duration = resolve_step_duration(profile, step)
-    print(f"Launching 1 instance, run_id={run_id}, step_id={step_id}, threads={step['threads']}, duration={duration}s")
+    step_results = []
+    for step_idx, step in enumerate(profile["steps"]):
+        result = run_step(profile, run_id, step_idx, step)
+        step_results.append(result)
 
-    proc = launch_instance(profile["test_plan"], run_id, step_id, 1, step["threads"], duration)
-    proc.wait()
-    delete_target_file(run_id, step_id, 1)
     print(f"Done. run_id={run_id}")
+    for r in step_results:
+        status = "OK" if all(c == 0 for c in r["exit_codes"]) else "HAD FAILURES"
+        print(f"  {r['step_id']}: {r['instances_launched']} instance(s), exit codes {r['exit_codes']} [{status}]")
 
 
 if __name__ == "__main__":
