@@ -4,6 +4,8 @@ import json
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -11,6 +13,63 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent
 TARGETS_DIR = REPO_ROOT / "prometheus" / "targets"
 RESULTS_DIR = REPO_ROOT / "test-plans" / "results"
+PROMETHEUS_URL = "http://localhost:9090"
+
+
+def prom_instant_query(promql, at_unix_time):
+    """Instant query evaluated AT a specific past timestamp (not 'now') --
+    this avoids Prometheus staleness marking affecting results for targets
+    that have since disappeared, which plain 'now' queries are vulnerable to."""
+    params = urllib.parse.urlencode({"query": promql, "time": at_unix_time})
+    url = f"{PROMETHEUS_URL}/api/v1/query?{params}"
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        return json.loads(resp.read())
+
+
+def _first_value(prom_response, default=0.0):
+    """Pulls the first result's numeric value out of a Prometheus instant
+    query response, or `default` if the result vector is empty (no data --
+    this must never raise, an empty vector is a normal, expected outcome)."""
+    results = prom_response.get("data", {}).get("result", [])
+    if not results:
+        return default
+    return float(results[0]["value"][1])
+
+
+def evaluate_stop_rule(profile, run_id, step_id, step_start, step_end, warmup_sec):
+    stop_rule = profile.get("stop_rule", {})
+    if not stop_rule:
+        return False, None
+
+    window_start = step_start + warmup_sec
+    window_sec = max(step_end - window_start, 1)
+
+    error_rate_pct = 0.0
+    total_resp = prom_instant_query(
+        f'increase(jmeter_requests_total{{run_id="{run_id}", step_id="{step_id}"}}[{window_sec}s])',
+        step_end,
+    )
+    total_requests = sum(float(r["value"][1]) for r in total_resp.get("data", {}).get("result", []))
+    if total_requests > 0:
+        fail_resp = prom_instant_query(
+            f'increase(jmeter_failures_total{{run_id="{run_id}", step_id="{step_id}"}}[{window_sec}s])',
+            step_end,
+        )
+        total_failures = sum(float(r["value"][1]) for r in fail_resp.get("data", {}).get("result", []))
+        error_rate_pct = 100.0 * total_failures / total_requests
+
+    avg_resp = prom_instant_query(
+        f'sum(increase(jmeter_response_time_ms_sum{{run_id="{run_id}", step_id="{step_id}"}}[{window_sec}s])) '
+        f'/ sum(increase(jmeter_response_time_ms_count{{run_id="{run_id}", step_id="{step_id}"}}[{window_sec}s]))',
+        step_end,
+    )
+    avg_response_ms = _first_value(avg_resp, default=0.0)
+
+    if "max_error_rate_pct" in stop_rule and error_rate_pct > stop_rule["max_error_rate_pct"]:
+        return True, f"error rate {error_rate_pct:.1f}% exceeded max_error_rate_pct={stop_rule['max_error_rate_pct']}"
+    if "max_avg_response_ms" in stop_rule and avg_response_ms > stop_rule["max_avg_response_ms"]:
+        return True, f"avg response {avg_response_ms:.0f}ms exceeded max_avg_response_ms={stop_rule['max_avg_response_ms']}"
+    return False, None
 
 
 def load_profile(path):
@@ -132,10 +191,20 @@ def main():
         sys.exit(1)
 
     run_id = time.strftime("%Y%m%d-%H%M%S")
+    warmup_sec = profile.get("warmup_sec", 0)
     step_results = []
     for step_idx, step in enumerate(profile["steps"]):
+        step_start = int(time.time())
         result = run_step(profile, run_id, step_idx, step)
+        step_end = int(time.time())
+        result["step_start"] = step_start
+        result["step_end"] = step_end
         step_results.append(result)
+
+        should_stop, reason = evaluate_stop_rule(profile, run_id, result["step_id"], step_start, step_end, warmup_sec)
+        if should_stop:
+            print(f"[{result['step_id']}] STOP RULE TRIGGERED: {reason}", file=sys.stderr)
+            break
 
     print(f"Done. run_id={run_id}")
     for r in step_results:
