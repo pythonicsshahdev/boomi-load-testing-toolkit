@@ -1,0 +1,16 @@
+test_plan: rest/ramp.jmx
+step_duration_sec: 30
+warmup_sec: 5
+slow_request_threshold_ms: 2000
+stop_rule:
+  max_error_rate_pct: 2
+  max_avg_response_ms: 3000
+steps:
+  - instances: 1
+    threads: 5
+  - instances: 2
+    threads: 5
+  - instances: 2
+    threads: 10
+  - instances: 4
+    threads: 10

@@ -16,6 +16,13 @@ REPO_ROOT = Path(__file__).resolve().parent
 TARGETS_DIR = REPO_ROOT / "prometheus" / "targets"
 RESULTS_DIR = REPO_ROOT / "test-plans" / "results"
 PROMETHEUS_URL = "http://localhost:9090"
+# Prometheus writes a staleness marker within a few seconds of a scrape
+# target disappearing (observed empirically: ~3-4s after the target's last
+# successful scrape, once its file_sd entry is removed). step_end is
+# captured right as the container dies, which is right on that edge --
+# querying at step_end itself is a race. Backing the query instant off by
+# one full scrape_interval reliably lands before the staleness cutoff.
+QUERY_SETTLE_SEC = 5
 GRAFANA_URL = "http://localhost:3004"
 GRAFANA_AUTH = ("admin", "admin")
 CONFIRMATION_THRESHOLD = 4
@@ -93,18 +100,19 @@ def evaluate_stop_rule(profile, run_id, step_id, step_start, step_end, warmup_se
         return False, None
 
     window_start = step_start + warmup_sec
-    window_sec = max(step_end - window_start, 1)
+    query_time = step_end - QUERY_SETTLE_SEC
+    window_sec = max(query_time - window_start, 1)
 
     error_rate_pct = 0.0
     total_resp = prom_instant_query(
         f'increase(jmeter_requests_total{{run_id="{run_id}", step_id="{step_id}"}}[{window_sec}s])',
-        step_end,
+        query_time,
     )
     total_requests = sum(float(r["value"][1]) for r in total_resp.get("data", {}).get("result", []))
     if total_requests > 0:
         fail_resp = prom_instant_query(
             f'increase(jmeter_failures_total{{run_id="{run_id}", step_id="{step_id}"}}[{window_sec}s])',
-            step_end,
+            query_time,
         )
         total_failures = sum(float(r["value"][1]) for r in fail_resp.get("data", {}).get("result", []))
         error_rate_pct = 100.0 * total_failures / total_requests
@@ -112,7 +120,7 @@ def evaluate_stop_rule(profile, run_id, step_id, step_start, step_end, warmup_se
     avg_resp = prom_instant_query(
         f'sum(increase(jmeter_response_time_ms_sum{{run_id="{run_id}", step_id="{step_id}"}}[{window_sec}s])) '
         f'/ sum(increase(jmeter_response_time_ms_count{{run_id="{run_id}", step_id="{step_id}"}}[{window_sec}s]))',
-        step_end,
+        query_time,
     )
     avg_response_ms = _first_value(avg_resp, default=0.0)
 
@@ -127,11 +135,12 @@ def query_report_rows(run_id, step_id, step_start, step_end, warmup_sec):
     """One row per sampler label seen in this step, in JMeter's own
     Aggregate Report column convention."""
     window_start = step_start + warmup_sec
-    window_sec = max(step_end - window_start, 1)
+    query_time = step_end - QUERY_SETTLE_SEC
+    window_sec = max(query_time - window_start, 1)
 
     labels_resp = prom_instant_query(
         f'group by (label) (jmeter_requests_total{{run_id="{run_id}", step_id="{step_id}"}})',
-        step_end,
+        query_time,
     )
     labels = sorted(r["metric"]["label"] for r in labels_resp.get("data", {}).get("result", []))
 
@@ -139,23 +148,23 @@ def query_report_rows(run_id, step_id, step_start, step_end, warmup_sec):
     for label in labels:
         sel = f'run_id="{run_id}", step_id="{step_id}", label="{label}"'
 
-        samples = _first_value(prom_instant_query(f'increase(jmeter_requests_total{{{sel}}}[{window_sec}s])', step_end))
-        failures = _first_value(prom_instant_query(f'increase(jmeter_failures_total{{{sel}}}[{window_sec}s])', step_end))
+        samples = _first_value(prom_instant_query(f'increase(jmeter_requests_total{{{sel}}}[{window_sec}s])', query_time))
+        failures = _first_value(prom_instant_query(f'increase(jmeter_failures_total{{{sel}}}[{window_sec}s])', query_time))
         error_pct = (100.0 * failures / samples) if samples > 0 else 0.0
         throughput = samples / window_sec if window_sec > 0 else 0.0
 
         avg_ms = _first_value(prom_instant_query(
             f'increase(jmeter_response_time_ms_sum{{{sel}}}[{window_sec}s]) / increase(jmeter_response_time_ms_count{{{sel}}}[{window_sec}s])',
-            step_end,
+            query_time,
         ))
         median_ms = _first_value(prom_instant_query(
-            f'histogram_quantile(0.50, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', step_end))
+            f'histogram_quantile(0.50, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', query_time))
         p90_ms = _first_value(prom_instant_query(
-            f'histogram_quantile(0.90, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', step_end))
+            f'histogram_quantile(0.90, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', query_time))
         p95_ms = _first_value(prom_instant_query(
-            f'histogram_quantile(0.95, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', step_end))
+            f'histogram_quantile(0.95, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', query_time))
         p99_ms = _first_value(prom_instant_query(
-            f'histogram_quantile(0.99, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', step_end))
+            f'histogram_quantile(0.99, sum(increase(jmeter_response_time_ms_bucket{{{sel}}}[{window_sec}s])) by (le))', query_time))
 
         rows.append({
             "step_id": step_id,
