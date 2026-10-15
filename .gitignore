@@ -15,6 +15,7 @@ hook-logs/
 __pycache__/
 *.pyc
 venv/
+.venv-ramp/
 
 # Salesforce CLI cache
 .sfdx/
