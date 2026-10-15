@@ -367,9 +367,10 @@ def sample_host_cpu(container_names):
 def main():
     args = sys.argv[1:]
     skip_confirmation = "--yes" in args
-    args = [a for a in args if a != "--yes"]
+    validate_only = "--validate" in args
+    args = [a for a in args if a not in ("--yes", "--validate")]
     if len(args) < 1:
-        print("Usage: ramp.py [--yes] <profile.yaml>", file=sys.stderr)
+        print("Usage: ramp.py [--yes] [--validate] <profile.yaml>", file=sys.stderr)
         sys.exit(1)
 
     profile = load_profile(args[0])
@@ -379,6 +380,10 @@ def main():
         for e in errors:
             print(f"  - {e}", file=sys.stderr)
         sys.exit(1)
+
+    if validate_only:
+        print(f"Profile is valid: {len(profile['steps'])} step(s), test_plan={profile['test_plan']!r}")
+        sys.exit(0)
 
     run_id = time.strftime("%Y%m%d-%H%M%S")
     warmup_sec = profile.get("warmup_sec", 0)
