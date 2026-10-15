@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 TARGETS_DIR = REPO_ROOT / "prometheus" / "targets"
 RESULTS_DIR = REPO_ROOT / "test-plans" / "results"
 PROMETHEUS_URL = "http://localhost:9090"
+CONFIRMATION_THRESHOLD = 4
 
 _current_step_state = {"run_id": None, "step_id": None, "instances": 0}
 
@@ -306,12 +307,36 @@ def run_step(profile, run_id, step_idx, step):
     return {"step_id": step_id, "instances_launched": instances, "exit_codes": exit_codes}
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: ramp.py <profile.yaml>", file=sys.stderr)
+def confirm_large_step(step, step_id, test_plan, skip_confirmation):
+    if step["instances"] <= CONFIRMATION_THRESHOLD:
+        return
+    message = (
+        f"\n{step_id} launches {step['instances']} simultaneous instances "
+        f"(> {CONFIRMATION_THRESHOLD}) against test plan '{test_plan}'. "
+        f"This generates real load -- make sure that's intentional.\n"
+    )
+    if skip_confirmation:
+        print(message + "Proceeding without prompting (--yes was passed).")
+        return
+    print(message, end="")
+    if not sys.stdin.isatty():
+        print("No terminal attached to confirm interactively. Re-run with --yes to proceed unattended.", file=sys.stderr)
+        sys.exit(1)
+    answer = input("Type 'yes' to proceed: ")
+    if answer.strip().lower() != "yes":
+        print("Aborted.", file=sys.stderr)
         sys.exit(1)
 
-    profile = load_profile(sys.argv[1])
+
+def main():
+    args = sys.argv[1:]
+    skip_confirmation = "--yes" in args
+    args = [a for a in args if a != "--yes"]
+    if len(args) < 1:
+        print("Usage: ramp.py [--yes] <profile.yaml>", file=sys.stderr)
+        sys.exit(1)
+
+    profile = load_profile(args[0])
     errors = validate_profile(profile)
     if errors:
         print("Profile is invalid:", file=sys.stderr)
@@ -323,6 +348,8 @@ def main():
     warmup_sec = profile.get("warmup_sec", 0)
     step_results = []
     for step_idx, step in enumerate(profile["steps"]):
+        step_id_preview = f"step-{step_idx + 1:02d}"
+        confirm_large_step(step, step_id_preview, profile["test_plan"], skip_confirmation)
         step_start = int(time.time())
         result = run_step(profile, run_id, step_idx, step)
         step_end = int(time.time())
