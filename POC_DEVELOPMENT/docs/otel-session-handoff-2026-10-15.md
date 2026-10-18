@@ -1,6 +1,6 @@
 # Handoff: Lightweight JMeter Performance POC → OTel/`perf/` Session
 
-**Written:** 2026-10-15, by the Claude session working in `BOOMI_Performance_Testing_POC`.
+**Written:** 2026-10-15, by the Claude session working in `BOOMI_Performance_Testing_POC`. **Updated 2026-10-18** — added section 4 (endpoint-driven profiles, pacing, regression gate, first runs against a real Boomi-published API), Lessons 6-9, and refreshed "Current state". Sections 1-3 and Lessons 1-5 are unchanged from the original.
 **Audience:** a Claude Code session working in the OTel Fanout Platform repo (`vector_simplified`), specifically the heavier `perf/` performance-testing subsystem there.
 **Why this exists:** these two projects both tackle "load-test Boomi-published APIs," deliberately split apart so each has its own simpler blast radius (see "Why two projects" below). This document summarizes what was built, broken, fixed, and learned in the lightweight one, with an eye toward what's actually transferable to the heavier one — not a merge proposal, a lessons-and-capabilities handoff.
 
@@ -18,7 +18,7 @@ If your session wants the full origin story: `/Users/shahabdullahmac/Downloads/I
 
 ## What exists in this repo right now
 
-Everything below is pushed to `https://github.com/pythonicsshahdev/BOOMI_Performance_Testing_POC` (private), on `main`, as of commit `14b53ca`. All paths below are relative to this repo's `POC_DEVELOPMENT/` subfolder.
+Sections 1-3 were pushed to `https://github.com/pythonicsshahdev/BOOMI_Performance_Testing_POC` (private), on `main`, as of commit `14b53ca`. Section 4 is committed locally on `main` and may not be pushed yet — check `git status -sb`. All paths below are relative to this repo's `POC_DEVELOPMENT/` subfolder.
 
 ### 1. Base stack (11 tasks, shipped first)
 - `docker-compose.yml`: JMeter (headless `jmeter` service + browser-GUI `jmeter-gui` noVNC service), Prometheus, Grafana, a REST sample target (reused existing image), a GraphQL sample target (new, FastAPI+Strawberry).
@@ -40,6 +40,14 @@ Everything below is pushed to `https://github.com/pythonicsshahdev/BOOMI_Perform
 ### 3. Grafana dashboard expansion (shipped third, same day)
 - `grafana/dashboards/jmeter-performance.json`: grew from 4 panels to 16 — KPI stat row (Active Threads, Total Requests, Throughput RPS, Throughput TPS, Error Rate), percentile stat row (p90/p95/p99), trend charts (Request Rate, Response Time Percentiles, Error Rate, Active Threads, **Connect Time vs Latency vs Response Time**), an Endpoint-Level Summary table, a Top Slowest Endpoints bar gauge, an Error Tracking by Code panel.
 - `test-plans/{rest,graphql,soap}/ramp.jmx` also gained two new Prometheus collectors: `jmeter_connect_time_ms` and `jmeter_latency_ms` (both histograms, same `label,code` dimensions as the existing `jmeter_response_time_ms`). **This is the piece most likely relevant to you** — see "The OTel connection point" below.
+
+### 4. Endpoint-driven profiles, pacing, regression gate, real Boomi API (added 2026-10-17/18)
+- **Endpoints without the JMeter GUI.** A profile can now carry `target:` (protocol/host/port/auth) and `requests:` (name/method/path, optional `extract: "var=$.jsonpath"` for chaining, optional JSON `body`). `ramp.py` generates a JMeter plan per run at `test-plans/generated/<run_id>.jmx` (gitignored), using the profile's `test_plan` as the template: thread group + Prometheus Listener are kept, defaults/auth/samplers are replaced. Profiles without these blocks run exactly as before. Auth reads credentials from `.env` (`BOOMI_TEST_TARGET_API_KEY` sent as `x-api-key`, or basic-auth user/pass). `ramp-profile-builder.html` has a matching Target & Endpoints section, live YAML, copy/download, and inline validation mirroring `validate_profile`.
+- **Pacing.** `think_time_ms` (profile-wide or per request; a ConstantTimer before each request) and per-step `rps` (a ConstantThroughputTimer, total req/s split across the step's instances). `rps` is a **cap**, not a guarantee: size threads so `threads x instances / (response + think time)` can reach it. Generated plans only; using them without `requests:` is a validation error.
+- **Regression gate.** `regression: {baseline, max_p95_increase_pct, max_error_rate_increase_pct, min_p95_delta_ms}`. `./ramp.sh --save-baseline <profile>` writes `baselines/<name>.json` (refused if the run hit a stop rule or had failed instances). Later runs compare per `step|label` after the summary and exit **4** on regression (2 = stop rule, 3 = failed instance). A p95 increase must clear both the % and absolute-ms bars. Rows with zero samples count as failures (Lesson 8). Baselines are meant to be committed.
+- **Real Boomi API, first runs.** A Boomi-published customers API on a local Atom (`http://localhost:8078/ws/rest/proxy/v1/customers`, `x-api-key` auth) fronting the FastAPI backend, which is reachable directly through an SSH tunnel on `:4005`. Profiles: `ramp-profiles/rest-boomi-local.yaml` (+ `rest-backend-direct.yaml` as a no-Boomi control), `rest-boomi-phased.yaml` / `rest-backend-phased.yaml` (10 > 20 > 40 > 80 > 20 > 10 req/s, 40s steps), and `rest-boomi-gateway.example.yaml` (template for another gateway).
+- **Results (single laptop; JMeter, Atom and backend share the machine, so indicative only).** Phased runs: 0 errors on both paths, every step within ~2% of its target rate, up to 80 req/s. Boomi average latency (List/Get, ms): 20/15 at 10 rps, 28/26 at 20, 13/9 at 40, 9/6 at 80. Direct backend: 9/4, 8/4, 6/3, 5/2. The Boomi layer added roughly 4 ms at the 80 req/s peak and 10-15 ms at low rates (early steps include warm-up). One outlier: Boomi p99 of ~590-760 ms in the first 20 req/s step, absent on the direct path. **No breaking point found** — 80 req/s did not stress anything. Run IDs: Boomi `20261018-101055`, direct `20261018-101511`.
+- **Tests:** `tests/test_ramp.py` grew from 12 to 26 tests (validation, plan generation, pacing, baseline comparison).
 
 ---
 
@@ -81,6 +89,18 @@ To match a literal `+` via Prometheus's `=~` matcher, the **PromQL query text it
 
 **If your dashboards embed any regex with special characters (`+`, `.`, `(`, etc.) inside JSON-stored PromQL, this is worth testing directly against live Prometheus, not just confirming the JSON parses** — a wrong-but-valid regex produces no error at any layer.
 
+### Lesson 6 — Inside a container, `localhost` and `0.0.0.0` are the container itself
+A load generator in Docker cannot reach a service on the host through `localhost`, and `0.0.0.0` is a bind address, not a destination (it only happens to work on some Linux setups). Use the compose service name for other containers, `host.docker.internal` for the host (Docker Desktop), or a real hostname. The builder warns about this. The service on the host must also listen on a non-loopback interface.
+
+### Lesson 7 — Prometheus histogram quantiles are only as fine as the buckets; for fast APIs they are artifacts
+The plugin's buckets are 50/100/250/500/1000/2500/5000/10000 ms. For an API answering in 2-30 ms every request lands in the first bucket, so p50/p90/p95 come out as the same interpolated values (~25/45/48 ms) regardless of what is actually happening, in both the direct and the Boomi runs. **Averages (sum/count) and p99 outliers stay trustworthy; the middle percentiles do not.** Recommended fix, not yet done: add low buckets (e.g. 5,10,20,30,50,100,...) to the `jmeter_*_ms` histograms in the `ramp.jmx` listeners. Relevant to you: OTel span durations are exact, so lining them up against these histograms needs finer buckets, or compare against the averages.
+
+### Lesson 8 — A regression gate must treat "no data" as a failure
+The first version compared a zero-sample row as `p95 = 0 ms` against the baseline and reported a pass, so a run where Prometheus returned nothing would have gone green. Caught by deliberately tampering with a baseline and checking the verdict, not by the unit tests that existed at the time. Rows with no samples now report `NO DATA` and count as a failure.
+
+### Lesson 9 — A constant-throughput timer only caps; it cannot add load
+`rps` throttles threads, it never speeds them up. If threads and think time cannot sustain the target, the real rate silently lands below it. Check the summary's `Thrpt` column against the target (note each label shows its own share of the total, e.g. two requests per loop = half each).
+
 ---
 
 ## The OTel connection point (why this handoff mentions OTel at all)
@@ -94,14 +114,15 @@ Concretely, what exists now: `test-plans/{rest,graphql,soap}/ramp.jmx` each expo
 
 — all with `label` (sampler name) and `code` (HTTP status) dimensions, confirmed live and correct across all three protocols (`jmeter-prometheus-plugin`'s `ListenerCollectorConfig$Measurable` enum genuinely supports `ConnectTime`/`Latency`, not assumed — extracted and confirmed from the plugin jar directly before using them).
 
-If your `perf/` stack correlates JMeter load-test metrics with OTel traces from the actual Boomi runtime/gateway, this three-way breakdown (connect vs. server-processing vs. total) is exactly the kind of thing that's useful to line up against OTel span timings on the same request — e.g., confirming whether a latency spike is network-side (connect time), server-side (JMeter's "latency"/TTFB), or something downstream of the first byte (the gap between latency and total response time). This repo doesn't do that correlation itself (explicitly out of scope here), but the raw metric is now real and verified, in case it's a useful building block.
+If your `perf/` stack correlates JMeter load-test metrics with OTel traces from the actual Boomi runtime/gateway, this three-way breakdown (connect vs. server-processing vs. total) is exactly the kind of thing that's useful to line up against OTel span timings on the same request — e.g., confirming whether a latency spike is network-side (connect time), server-side (JMeter's "latency"/TTFB), or something downstream of the first byte (the gap between latency and total response time). This repo doesn't do that correlation itself (explicitly out of scope here), but the raw metric is now real and verified, in case it's a useful building block. One caution from the 2026-10-18 runs (Lesson 7): for fast APIs these histograms' default buckets are too coarse for the middle percentiles, so line OTel spans up against the averages, or add finer buckets first.
 
 ---
 
 ## Current state / what's NOT done here
 
-- Everything described above is pushed to `main` as of commit `14b53ca`.
-- Two other sub-projects remain unscoped on this side: **real Boomi target integration** and **CI/CD** (the user already has Jenkins containers + GitHub Actions assets from other work, per this project's own memory) — these were explicitly named as "next" when the ramp/spike work started, not yet picked up.
+- Sections 1-3 are pushed to `main` as of commit `14b53ca`. Section 4 is committed locally on top of it; run `git status -sb` to see whether it has been pushed.
+- **Real Boomi target integration:** first pass done (section 4) against a local-Atom API; not yet against a deployed gateway/cloud runtime, and no Boomi-side metrics are pulled in (execution counts/durations, runtime CPU/memory) — the obvious next piece, and the natural meeting point with your OTel work. Also not done: finer histogram buckets (Lesson 7), a breaking-point search above 80 req/s, a side-by-side comparison page for two runs, and a Kubernetes/Helm deployment.
+- **CI/CD** is still not picked up. The user already has Jenkins containers + GitHub Actions assets from other work (per this project's own memory), and the regression gate's exit code 4 is designed to be used as a pipeline gate, but no pipeline calls it yet.
 - This project's own memory file (for whichever session continues it) lives at `~/.claude/projects/-Users-shahabdullahmac-Documents-boomicompanion-projects-BOOMI-Performance-Testing-POC/memory/project_boomi-load-testing.md` if a future session here wants the full blow-by-blow (every ruling, every timing-margin finding, more detail than this handoff includes).
 
 No action is expected from your side in response to this document — it's context to have on hand when the user brings the two projects into the same conversation again.

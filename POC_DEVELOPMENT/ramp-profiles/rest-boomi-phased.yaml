@@ -1,0 +1,46 @@
+# Phased load (10 > 20 > 40 > 80 > 20 > 10 req/s) through the Boomi API on the local Atom.
+# First run: ./ramp.sh --save-baseline <this file>. Then compare later runs against it.
+test_plan: rest/ramp.jmx
+step_duration_sec: 40
+warmup_sec: 8
+think_time_ms: 200
+stop_rule:
+  max_error_rate_pct: 5
+  max_avg_response_ms: 3000
+regression:
+  baseline: boomi-phased
+  max_p95_increase_pct: 30
+  max_error_rate_increase_pct: 1
+  min_p95_delta_ms: 25
+target:
+  protocol: http
+  host: host.docker.internal
+  port: 8078
+  auth: api_key
+requests:
+- name: List customers
+  method: GET
+  path: /ws/rest/proxy/v1/customers
+  extract: id=$[0].customer_id
+- name: Get customer
+  method: GET
+  path: /ws/rest/proxy/v1/customers/${id}
+steps:
+- instances: 1
+  threads: 4
+  rps: 10
+- instances: 1
+  threads: 8
+  rps: 20
+- instances: 1
+  threads: 16
+  rps: 40
+- instances: 1
+  threads: 32
+  rps: 80
+- instances: 1
+  threads: 8
+  rps: 20
+- instances: 1
+  threads: 4
+  rps: 10
