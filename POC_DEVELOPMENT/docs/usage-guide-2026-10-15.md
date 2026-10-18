@@ -204,6 +204,41 @@ requests:
 
 Optional per request: `body` (raw JSON string; adds a JSON Content-Type header). Optional on target: `api_key_header` (default `x-api-key`). See `ramp-profiles/rest-endpoints.yaml` for a working example.
 
+#### Pacing: think time and a target request rate
+
+Both apply to generated plans only (profiles with `target`/`requests`).
+
+```yaml
+think_time_ms: 200          # pause before each request (a request can override: think_time_ms on the request)
+steps:
+  - instances: 2
+    threads: 5
+    rps: 40                 # total requests/sec for the step, split evenly across its instances
+```
+
+`rps` is a **cap**, not a guarantee: it can only throttle. If you set it higher than your threads and think time allow (roughly `threads x instances / (response time + think time)` per request), the real rate lands below it. Add threads if the summary's `Thrpt` falls short.
+
+#### Regression gate (baseline comparison)
+
+```yaml
+regression:
+  baseline: rest-paced              # stored in baselines/rest-paced.json
+  max_p95_increase_pct: 30          # default 25
+  max_error_rate_increase_pct: 1    # percentage points, default 1
+  min_p95_delta_ms: 15              # ignore p95 moves smaller than this, default 10
+```
+
+```bash
+./ramp.sh --save-baseline ramp-profiles/rest-paced-regression.yaml   # record a known-good run
+./ramp.sh ramp-profiles/rest-paced-regression.yaml                   # later runs are compared against it
+```
+
+After the summary, each step|label is compared with the baseline. A p95 increase must exceed both the percentage and the absolute-ms limits (3ms to 6ms is +100% but noise). A row with no samples counts as a failure (it can't prove there was no regression). Labels new to or missing from the baseline are reported but don't fail. Exit codes: `2` stop rule, `3` failed instance, `4` regression. A baseline is not saved from a run that hit a stop rule or had failed instances. `baselines/*.json` are meant to be committed. p95 comes from Prometheus histogram buckets (50/100/250/500... ms), so keep thresholds at 20% or more.
+
+#### Testing a real Boomi-published API
+
+Copy `ramp-profiles/rest-boomi-gateway.example.yaml`, fill in the placeholders, put credentials in `.env`, and start with the low settings in the file. The host must be reachable from inside the JMeter container (a public or VPN hostname, or `host.docker.internal`; not `localhost`).
+
 ---
 
 ## Part 6 — Viewing results in Grafana

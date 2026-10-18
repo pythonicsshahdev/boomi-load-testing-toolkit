@@ -163,3 +163,85 @@ def test_generated_plan_adds_auth_and_body_headers():
     assert "Content-Type" in xml and "postBodyRaw" in xml
     profile["target"]["auth"] = "basic"
     assert "HTTP Authorization Manager" in ramp.build_plan_from_profile(profile)
+
+
+def test_validate_pacing_rules():
+    profile = _endpoint_profile()
+    profile["think_time_ms"] = 250
+    profile["requests"][0]["think_time_ms"] = 0
+    profile["steps"][0]["rps"] = 20
+    assert ramp.validate_profile(profile) == []
+    profile["think_time_ms"] = -1
+    profile["steps"][0]["rps"] = 0
+    errors = ramp.validate_profile(profile)
+    assert any("think_time_ms must be" in e for e in errors)
+    assert any("'rps' must be" in e for e in errors)
+
+
+def test_pacing_without_requests_is_rejected():
+    profile = _valid_profile()
+    profile["think_time_ms"] = 100
+    profile["steps"][0]["rps"] = 5
+    errors = ramp.validate_profile(profile)
+    assert any("think_time_ms needs" in e for e in errors)
+    assert any("'rps' needs" in e for e in errors)
+
+
+def test_generated_plan_includes_think_time_and_throughput_timer():
+    profile = _endpoint_profile()
+    profile["think_time_ms"] = 250
+    profile["requests"][1]["think_time_ms"] = 0  # per-request override wins
+    profile["steps"][0]["rps"] = 20
+    xml = ramp.build_plan_from_profile(profile)
+    assert xml.count('testclass="ConstantTimer"') == 1
+    assert "ConstantThroughputTimer" in xml and "RPS_PER_MIN" in xml
+    plain = ramp.build_plan_from_profile(_endpoint_profile())
+    assert "ConstantTimer" not in plain and "ConstantThroughputTimer" not in plain
+
+
+def test_validate_regression_block():
+    profile = _valid_profile()
+    profile["regression"] = {"baseline": "rest-endpoints", "max_p95_increase_pct": 30}
+    assert ramp.validate_profile(profile) == []
+    profile["regression"] = {"baseline": "../evil", "min_p95_delta_ms": -5}
+    errors = ramp.validate_profile(profile)
+    assert any("regression.baseline" in e for e in errors)
+    assert any("min_p95_delta_ms" in e for e in errors)
+
+
+def _row(label, p95, err=0.0, step="step-01"):
+    return {"step_id": step, "label": label, "samples": 100, "p95_ms": p95, "error_pct": err, "throughput": 10.0}
+
+
+def _baseline(rows):
+    return ramp.build_baseline(_valid_profile(), "20260101-000000", rows)
+
+
+def test_compare_flags_p95_regression_but_ignores_small_absolute_changes():
+    base = _baseline([_row("a", 200), _row("tiny", 3)])
+    results = {r["key"]: r for r in ramp.compare_to_baseline(
+        [_row("a", 300), _row("tiny", 9)], base, {"max_p95_increase_pct": 25, "min_p95_delta_ms": 10})}
+    assert results["step-01|a"]["status"] == "REGRESSION"      # +50% and +100ms
+    assert results["step-01|tiny"]["status"] == "ok"            # +200% but only +6ms
+
+
+def test_compare_flags_error_rate_and_reports_new_and_missing():
+    base = _baseline([_row("a", 100, err=0.0), _row("gone", 100)])
+    results = {r["key"]: r for r in ramp.compare_to_baseline(
+        [_row("a", 100, err=3.0), _row("fresh", 100)], base, {"max_error_rate_increase_pct": 1})}
+    assert results["step-01|a"]["status"] == "REGRESSION"
+    assert results["step-01|fresh"]["status"] == "new"
+    assert results["step-01|gone"]["status"] == "missing"
+
+
+def test_compare_passes_when_within_limits():
+    base = _baseline([_row("a", 200)])
+    results = ramp.compare_to_baseline([_row("a", 220)], base, {})
+    assert [r["status"] for r in results] == ["ok"]
+
+
+def test_compare_treats_zero_sample_rows_as_no_data_not_a_pass():
+    base = _baseline([_row("a", 200)])
+    empty = dict(_row("a", 0), samples=0)
+    results = ramp.compare_to_baseline([empty], base, {})
+    assert results[0]["status"] == "NO DATA"

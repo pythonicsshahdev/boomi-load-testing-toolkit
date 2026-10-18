@@ -29,7 +29,7 @@
                     padding: 1rem 1.25rem 1.25rem; margin-top: 1.25rem; }
   legend { padding: 0 .5rem; font-weight: 700; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
-  .step-row { display: grid; grid-template-columns: 1fr 1fr 1.4fr auto; gap: .6rem; align-items: end;
+  .step-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1fr auto; gap: .6rem; align-items: end;
               margin: .6rem 0; padding: .6rem; background: var(--bg); border-radius: 8px; }
   .req-row { display: grid; grid-template-columns: 1.2fr .7fr 2fr 1.2fr auto; gap: .6rem; align-items: end;
              margin: .6rem 0; padding: .6rem; background: var(--bg); border-radius: 8px; }
@@ -89,6 +89,10 @@
       <label>Max average response time (ms)</label>
       <input type="number" id="maxAvgResponse" value="3000">
     </div>
+    <div>
+      <label>Think time <small>(ms pause before each request, optional)</small></label>
+      <input type="text" id="thinkTime" value="">
+    </div>
   </div>
 </div>
 
@@ -114,6 +118,18 @@
   </select>
   <div id="requests"></div>
   <button type="button" onclick="addRequest()">+ Add request</button>
+</fieldset>
+
+<fieldset>
+  <legend>Regression gate <small>(optional)</small></legend>
+  <p class="lede">Compare each run to a saved baseline and exit 4 on a regression. Record the baseline once with <code>./ramp.sh --save-baseline &lt;profile&gt;</code>.</p>
+  <label>Baseline name <small>(blank = no regression check)</small></label>
+  <input type="text" id="rgName" value="">
+  <div class="grid">
+    <div><label>Max p95 increase (%)</label><input type="text" id="rgP95" value="25"></div>
+    <div><label>Max error-rate increase (points)</label><input type="text" id="rgErr" value="1"></div>
+    <div><label>Ignore p95 changes under (ms)</label><input type="text" id="rgDelta" value="10"></div>
+  </div>
 </fieldset>
 
 <fieldset>
@@ -144,7 +160,7 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 }
 
-function addStep(instances, threads, duration) {
+function addStep(instances, threads, duration, rps) {
   stepCount++;
   const div = document.createElement('div');
   div.className = 'step-row';
@@ -153,6 +169,7 @@ function addStep(instances, threads, duration) {
     <div><label>Instances</label><input type="number" class="s-instances" value="${esc(instances ?? 1)}"></div>
     <div><label>Threads</label><input type="number" class="s-threads" value="${esc(threads ?? 5)}"></div>
     <div><label>Duration override (sec, optional)</label><input type="text" class="s-duration" value="${esc(duration)}"></div>
+    <div><label>Target req/s (total, optional)</label><input type="text" class="s-rps" value="${esc(rps)}"></div>
     <div><button type="button" class="remove" onclick="document.getElementById('step-${stepCount}').remove(); render()">Remove</button></div>
   `;
   document.getElementById('steps').appendChild(div);
@@ -198,6 +215,8 @@ function collect() {
     slowThreshold: val('slowThreshold'),
     maxErrorRate: val('maxErrorRate'),
     maxAvgResponse: val('maxAvgResponse'),
+    thinkTime: val('thinkTime'),
+    regression: { name: val('rgName'), p95: val('rgP95'), err: val('rgErr'), delta: val('rgDelta') },
     target: { protocol: val('tProtocol'), host: val('tHost'), port: val('tPort'), auth: val('tAuth') },
     requests: [...document.querySelectorAll('.req-row')].map(row => {
       const g = sel => row.querySelector(sel).value.trim();
@@ -209,6 +228,7 @@ function collect() {
       instances: row.querySelector('.s-instances').value.trim(),
       threads: row.querySelector('.s-threads').value.trim(),
       duration: row.querySelector('.s-duration').value.trim(),
+      rps: row.querySelector('.s-rps').value.trim(),
     })),
   };
 }
@@ -225,6 +245,13 @@ function validate(p) {
   if (p.slowThreshold && !(Number(p.slowThreshold) > 0)) err('Slow request threshold must be a positive number (or blank).', byId('slowThreshold'));
   if (p.maxErrorRate === '' || !(Number(p.maxErrorRate) >= 0 && Number(p.maxErrorRate) <= 100)) err('Max error rate must be between 0 and 100.', byId('maxErrorRate'));
   if (!(Number(p.maxAvgResponse) > 0)) err('Max average response time must be a positive number.', byId('maxAvgResponse'));
+
+  if (p.thinkTime && !(Number(p.thinkTime) >= 0)) err('Think time must be a non-negative number (or blank).', byId('thinkTime'));
+  if (p.regression.name) {
+    if (!/^[A-Za-z0-9._-]+$/.test(p.regression.name)) err('Baseline name may only use letters, digits, ".", "_" and "-".', byId('rgName'));
+    [['rgP95', p.regression.p95, 'Max p95 increase'], ['rgErr', p.regression.err, 'Max error-rate increase'], ['rgDelta', p.regression.delta, 'Ignore-under ms']]
+      .forEach(([id, v, label]) => { if (v !== '' && !(Number(v) >= 0)) err(`${label} must be a non-negative number (or blank).`, byId(id)); });
+  }
 
   if (!p.target.host) err('Target host is required.', byId('tHost'));
   if (!(isPosInt(p.target.port) && Number(p.target.port) <= 65535)) err('Target port must be an integer 1-65535.', byId('tPort'));
@@ -249,6 +276,7 @@ function validate(p) {
   p.steps.forEach((s, i) => {
     if (!isPosInt(s.instances)) err(`Step ${i + 1}: instances must be a positive integer.`, s.el.querySelector('.s-instances'));
     if (!isPosInt(s.threads)) err(`Step ${i + 1}: threads must be a positive integer.`, s.el.querySelector('.s-threads'));
+    if (s.rps && !(Number(s.rps) > 0)) err(`Step ${i + 1}: target req/s must be a positive number (or blank).`, s.el.querySelector('.s-rps'));
     if (s.duration && !isPosInt(s.duration)) err(`Step ${i + 1}: duration override must be a positive integer (or blank).`, s.el.querySelector('.s-duration'));
   });
   return { errors, warns, bad };
@@ -259,9 +287,17 @@ function toYaml(p) {
   yaml += `step_duration_sec: ${p.stepDuration}\n`;
   yaml += `warmup_sec: ${p.warmupSec}\n`;
   if (p.slowThreshold) yaml += `slow_request_threshold_ms: ${p.slowThreshold}\n`;
+  if (p.thinkTime) yaml += `think_time_ms: ${p.thinkTime}\n`;
   yaml += `stop_rule:\n`;
   yaml += `  max_error_rate_pct: ${p.maxErrorRate}\n`;
   yaml += `  max_avg_response_ms: ${p.maxAvgResponse}\n`;
+  if (p.regression.name) {
+    yaml += `regression:\n`;
+    yaml += `  baseline: ${p.regression.name}\n`;
+    if (p.regression.p95 !== '') yaml += `  max_p95_increase_pct: ${p.regression.p95}\n`;
+    if (p.regression.err !== '') yaml += `  max_error_rate_increase_pct: ${p.regression.err}\n`;
+    if (p.regression.delta !== '') yaml += `  min_p95_delta_ms: ${p.regression.delta}\n`;
+  }
   yaml += `target:\n`;
   yaml += `  protocol: ${p.target.protocol}\n`;
   yaml += `  host: ${escapeYamlScalar(p.target.host)}\n`;
@@ -280,6 +316,7 @@ function toYaml(p) {
     yaml += `  - instances: ${s.instances}\n`;
     yaml += `    threads: ${s.threads}\n`;
     if (s.duration) yaml += `    duration_sec: ${s.duration}\n`;
+    if (s.rps) yaml += `    rps: ${s.rps}\n`;
   });
   return yaml;
 }

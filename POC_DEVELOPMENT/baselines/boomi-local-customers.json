@@ -1,0 +1,24 @@
+{
+  "run_id": "20261018-100757",
+  "saved_at": "2026-10-18T10:08:30",
+  "steps": [
+    {
+      "instances": 1,
+      "threads": 3
+    }
+  ],
+  "rows": {
+    "step-01|Get customer": {
+      "samples": 56,
+      "p95_ms": 48.81944444444444,
+      "error_pct": 0.0,
+      "throughput": 2.466666666666667
+    },
+    "step-01|List customers": {
+      "samples": 58,
+      "p95_ms": 68.33333333333331,
+      "error_pct": 0.0,
+      "throughput": 2.5333333333333337
+    }
+  }
+}

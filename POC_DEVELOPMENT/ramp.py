@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 TARGETS_DIR = REPO_ROOT / "prometheus" / "targets"
 RESULTS_DIR = REPO_ROOT / "test-plans" / "results"
 TEST_PLANS_DIR = REPO_ROOT / "test-plans"
+BASELINES_DIR = REPO_ROOT / "baselines"
 GENERATED_DIR = TEST_PLANS_DIR / "generated"
 PROMETHEUS_URL = "http://localhost:9090"
 # Prometheus writes a staleness marker within a few seconds of a scrape
@@ -306,6 +307,8 @@ def validate_profile(profile):
         if not isinstance(v, (int, float)) or v <= 0:
             errors.append(f"stop_rule.max_avg_response_ms must be a positive number, got {v!r}")
     errors.extend(_validate_endpoints(profile))
+    errors.extend(_validate_pacing(profile))
+    errors.extend(_validate_regression(profile))
     return errors
 
 
@@ -373,6 +376,52 @@ def _validate_endpoints(profile):
     return errors
 
 
+def _is_number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _validate_pacing(profile):
+    """think_time_ms / rps only exist in generated plans: a hand-built
+    test_plan has its own timers, which ramp.py must not guess at."""
+    errors = []
+    has_requests = "requests" in profile
+    if "think_time_ms" in profile:
+        v = profile["think_time_ms"]
+        if not _is_number(v) or v < 0:
+            errors.append(f"think_time_ms must be a non-negative number, got {v!r}")
+        elif not has_requests:
+            errors.append("think_time_ms needs target/requests (it is applied to generated plans only)")
+    for i, req in enumerate(profile.get("requests") or []):
+        if isinstance(req, dict) and "think_time_ms" in req:
+            v = req["think_time_ms"]
+            if not _is_number(v) or v < 0:
+                errors.append(f"requests[{i}]: 'think_time_ms' must be a non-negative number, got {v!r}")
+    for i, step in enumerate(profile.get("steps") or []):
+        if isinstance(step, dict) and "rps" in step:
+            v = step["rps"]
+            if not _is_number(v) or v <= 0:
+                errors.append(f"steps[{i}]: 'rps' must be a positive number, got {v!r}")
+            elif not has_requests:
+                errors.append(f"steps[{i}]: 'rps' needs target/requests (it is applied to generated plans only)")
+    return errors
+
+
+def _validate_regression(profile):
+    errors = []
+    if "regression" not in profile:
+        return errors
+    reg = profile["regression"]
+    if not isinstance(reg, dict):
+        return [f"regression must be a mapping, got {type(reg).__name__}"]
+    name = reg.get("baseline")
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+        errors.append(f"regression.baseline must be a name made of letters, digits, '.', '_' or '-', got {name!r}")
+    for key in ("max_p95_increase_pct", "max_error_rate_increase_pct", "min_p95_delta_ms"):
+        if key in reg and (not _is_number(reg[key]) or reg[key] < 0):
+            errors.append(f"regression.{key} must be a non-negative number, got {reg[key]!r}")
+    return errors
+
+
 def _sp(parent, name, text, tag="stringProp"):
     el = ET.SubElement(parent, tag, name=name)
     el.text = text
@@ -395,7 +444,7 @@ def _header_manager(parent, headers):
         _sp(h, "Header.value", value)
 
 
-def _http_sampler(parent, req):
+def _http_sampler(parent, req, think_default=0):
     sampler = _element(parent, "HTTPSamplerProxy", req["name"],
                        guiclass="HttpTestSampleGui", testclass="HTTPSamplerProxy")
     body = req.get("body")
@@ -418,6 +467,11 @@ def _http_sampler(parent, req):
     _sp(sampler, "HTTPSampler.use_keepalive", "true", tag="boolProp")
     # _element appended the sampler's (empty) hashTree right after it; fill it.
     children = parent.find("hashTree[last()]")
+    think = req.get("think_time_ms", think_default)
+    if think:
+        timer = _element(children, "ConstantTimer", "Think time",
+                         guiclass="ConstantTimerGui", testclass="ConstantTimer")
+        _sp(timer, "ConstantTimer.delay", str(int(think)))
     if "extract" in req:
         var, path = req["extract"].split("=", 1)
         pp = _element(children, "JSONPostProcessor", f"Extract {var}",
@@ -477,8 +531,16 @@ def build_plan_from_profile(profile):
     if headers:
         _header_manager(thread_group_tree, headers)
 
+    if any("rps" in step for step in profile["steps"]):
+        # Per-instance cap; the launcher sets RPS_PER_MIN per step. Steps without an
+        # rps leave it at the huge default, i.e. effectively unthrottled.
+        tt = _element(thread_group_tree, "ConstantThroughputTimer", "Target throughput",
+                      guiclass="TestBeanGUI", testclass="ConstantThroughputTimer")
+        _sp(tt, "calcMode", "2", tag="intProp")
+        _sp(tt, "throughput", "${__P(RPS_PER_MIN,6000000)}")
+
     for req in profile["requests"]:
-        _http_sampler(thread_group_tree, req)
+        _http_sampler(thread_group_tree, req, profile.get("think_time_ms", 0))
 
     thread_group_tree.append(listener)
     thread_group_tree.append(listener_tree)
@@ -520,7 +582,7 @@ def delete_target_file(run_id, step_id, idx):
     target_path.unlink(missing_ok=True)
 
 
-def launch_instance(test_plan, run_id, step_id, idx, threads, duration):
+def launch_instance(test_plan, run_id, step_id, idx, threads, duration, rps_per_min=None):
     """Launches one JMeter instance in the background. Returns the Popen handle."""
     container_name = derive_instance_name(run_id, step_id, idx)
     # Defensive: a stale container from a prior interrupted run can occupy
@@ -537,6 +599,8 @@ def launch_instance(test_plan, run_id, step_id, idx, threads, duration):
         f"-JTHREADS={threads}",
         f"-JDURATION={duration}",
     ]
+    if rps_per_min is not None:
+        cmd.append(f"-JRPS_PER_MIN={rps_per_min}")
     return subprocess.Popen(cmd, cwd=REPO_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -545,7 +609,11 @@ def run_step(profile, run_id, step_idx, step):
     duration = resolve_step_duration(profile, step)
     instances = step["instances"]
     threads = step["threads"]
-    print(f"[{step_id}] launching {instances} instance(s) x {threads} thread(s), duration={duration}s")
+    rps = step.get("rps")
+    # rps is the step's total; each instance caps itself at its share.
+    rps_per_min = round(rps * 60 / instances, 3) if rps else None
+    rps_note = f", target {rps} req/s total" if rps else ""
+    print(f"[{step_id}] launching {instances} instance(s) x {threads} thread(s), duration={duration}s{rps_note}")
 
     _current_step_state["run_id"] = run_id
     _current_step_state["step_id"] = step_id
@@ -557,7 +625,7 @@ def run_step(profile, run_id, step_idx, step):
     names = []
     for idx in range(1, instances + 1):
         names.append(derive_instance_name(run_id, step_id, idx))
-        procs.append(launch_instance(profile["test_plan"], run_id, step_id, idx, threads, duration))
+        procs.append(launch_instance(profile["test_plan"], run_id, step_id, idx, threads, duration, rps_per_min))
 
     time.sleep(min(duration / 2, 10))
     cpu_pct = sample_host_cpu(names)
@@ -613,6 +681,93 @@ def confirm_large_steps(profile, skip_confirmation):
         sys.exit(1)
 
 
+def baseline_path(name):
+    return BASELINES_DIR / f"{name}.json"
+
+
+def _step_shapes(profile):
+    return [{"instances": s["instances"], "threads": s["threads"]} for s in profile["steps"]]
+
+
+def build_baseline(profile, run_id, rows):
+    return {
+        "run_id": run_id,
+        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "steps": _step_shapes(profile),
+        "rows": {
+            f"{r['step_id']}|{r['label']}": {
+                "samples": r["samples"], "p95_ms": r["p95_ms"],
+                "error_pct": r["error_pct"], "throughput": r["throughput"],
+            }
+            for r in rows if r["label"] != "(no data)"
+        },
+    }
+
+
+def compare_to_baseline(rows, baseline, regression):
+    """One result per current row plus one per baseline row that vanished.
+    status: ok | REGRESSION | NO DATA | new | missing. REGRESSION and NO DATA fail the run.
+    A p95 increase must clear BOTH the percentage and the absolute-ms bar --
+    3ms -> 6ms is +100% but meaningless noise."""
+    max_pct = regression.get("max_p95_increase_pct", 25)
+    max_err = regression.get("max_error_rate_increase_pct", 1)
+    min_delta = regression.get("min_p95_delta_ms", 10)
+    results = []
+    seen = set()
+    for row in rows:
+        if row["label"] == "(no data)":
+            continue
+        key = f"{row['step_id']}|{row['label']}"
+        seen.add(key)
+        base = baseline["rows"].get(key)
+        if base is None:
+            results.append({"key": key, "status": "new", "reasons": []})
+            continue
+        if row["samples"] == 0:
+            # No data can't confirm "no regression" -- fail loudly rather than
+            # comparing a 0ms p95 against the baseline and passing.
+            results.append({"key": key, "status": "NO DATA", "reasons": ["no samples in the measurement window"]})
+            continue
+        delta_ms = row["p95_ms"] - base["p95_ms"]
+        delta_pct = (100.0 * delta_ms / base["p95_ms"]) if base["p95_ms"] > 0 else 0.0
+        err_delta = row["error_pct"] - base["error_pct"]
+        reasons = []
+        if delta_ms > min_delta and delta_pct > max_pct:
+            reasons.append(f"p95 {base['p95_ms']:.0f}ms -> {row['p95_ms']:.0f}ms (+{delta_pct:.0f}%, limit +{max_pct}%)")
+        if err_delta > max_err:
+            reasons.append(f"error rate {base['error_pct']:.1f}% -> {row['error_pct']:.1f}% (limit +{max_err} points)")
+        results.append({
+            "key": key, "status": "REGRESSION" if reasons else "ok", "reasons": reasons,
+            "base_p95": base["p95_ms"], "p95": row["p95_ms"], "delta_pct": delta_pct,
+            "base_err": base["error_pct"], "err": row["error_pct"],
+            "base_thr": base["throughput"], "thr": row["throughput"],
+        })
+    for key in baseline["rows"]:
+        if key not in seen:
+            results.append({"key": key, "status": "missing", "reasons": []})
+    return results
+
+
+def print_regression_report(name, baseline, results):
+    print()
+    print(f"=== Regression check vs baseline '{name}' (run {baseline.get('run_id')}, saved {baseline.get('saved_at')}) ===")
+    header = f"{'Step|Label':<40} {'p95 base':>9} {'p95 now':>8} {'Δp95':>7} {'Err base':>9} {'Err now':>8}  Status"
+    print(header)
+    print("-" * len(header))
+    for r in results:
+        if r["status"] == "NO DATA":
+            print(f"{r['key']:<40} {'':>9} {'':>8} {'':>7} {'':>9} {'':>8}  NO DATA (cannot verify; counts as failure)")
+            continue
+        if r["status"] in ("new", "missing"):
+            note = "not in baseline" if r["status"] == "new" else "in baseline but not in this run"
+            print(f"{r['key']:<40} {'':>9} {'':>8} {'':>7} {'':>9} {'':>8}  {r['status']} ({note})")
+            continue
+        print(f"{r['key']:<40} {r['base_p95']:>8.0f}ms {r['p95']:>7.0f}ms {r['delta_pct']:>+6.0f}% "
+              f"{r['base_err']:>8.1f}% {r['err']:>7.1f}%  {r['status']}")
+        for reason in r["reasons"]:
+            print(f"{'':<40} -> {reason}")
+
+
 def host_cpu_cores():
     result = subprocess.run(["sysctl", "-n", "hw.ncpu"], capture_output=True, text=True)
     return int(result.stdout.strip())
@@ -641,9 +796,10 @@ def main():
     args = sys.argv[1:]
     skip_confirmation = "--yes" in args
     validate_only = "--validate" in args
-    args = [a for a in args if a not in ("--yes", "--validate")]
+    save_baseline = "--save-baseline" in args
+    args = [a for a in args if a not in ("--yes", "--validate", "--save-baseline")]
     if len(args) < 1:
-        print("Usage: ramp.py [--yes] [--validate] <profile.yaml>", file=sys.stderr)
+        print("Usage: ramp.py [--yes] [--validate] [--save-baseline] <profile.yaml>", file=sys.stderr)
         sys.exit(1)
 
     profile = load_profile(args[0])
@@ -652,6 +808,10 @@ def main():
         print("Profile is invalid:", file=sys.stderr)
         for e in errors:
             print(f"  - {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if save_baseline and "regression" not in profile:
+        print("--save-baseline needs a 'regression: {baseline: <name>}' block in the profile.", file=sys.stderr)
         sys.exit(1)
 
     if validate_only:
@@ -704,10 +864,37 @@ def main():
         print_slow_requests_table(all_slow, total_requests)
 
     any_instance_failed = any(code != 0 for r in step_results for code in r["exit_codes"])
+    regressed = False
+    if "regression" in profile:
+        regression = profile["regression"]
+        name = regression["baseline"]
+        if save_baseline:
+            if stop_rule_triggered or any_instance_failed:
+                print("Not saving baseline: this run had a stop-rule trigger or failed instances, "
+                      "so it isn't a trustworthy reference.", file=sys.stderr)
+            else:
+                BASELINES_DIR.mkdir(exist_ok=True)
+                baseline_path(name).write_text(json.dumps(build_baseline(profile, run_id, all_rows), indent=2) + "\n")
+                print(f"\nBaseline '{name}' saved to {baseline_path(name).relative_to(REPO_ROOT)}")
+        elif not baseline_path(name).exists():
+            print(f"\nNo baseline '{name}' yet -- skipping regression check. "
+                  f"Re-run with --save-baseline to record this run as the baseline.")
+        else:
+            baseline = json.loads(baseline_path(name).read_text())
+            if baseline.get("steps") != _step_shapes(profile):
+                print("\nWARNING: baseline was recorded with different steps (instances/threads) -- "
+                      "the comparison below may not be like-for-like.", file=sys.stderr)
+            results = compare_to_baseline(all_rows, baseline, regression)
+            print_regression_report(name, baseline, results)
+            regressed = any(r["status"] in ("REGRESSION", "NO DATA") for r in results)
+            print("\nRegression check: " + ("FAILED" if regressed else "passed"))
+
     if stop_rule_triggered:
         sys.exit(2)
     if any_instance_failed:
         sys.exit(3)
+    if regressed:
+        sys.exit(4)
 
 
 if __name__ == "__main__":

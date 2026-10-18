@@ -1,0 +1,28 @@
+# CONTROL run: the same requests as rest-boomi-local.yaml, but straight to the backend
+# (port 4005 on the Mac, an SSH tunnel), skipping Boomi. Compare the two runs in Grafana
+# (or the summary tables) to see what the Boomi layer adds.
+# From the JMeter container the Mac is host.docker.internal.
+test_plan: rest/ramp.jmx
+step_duration_sec: 30
+warmup_sec: 5
+think_time_ms: 200
+stop_rule:
+  max_error_rate_pct: 2
+  max_avg_response_ms: 3000
+target:
+  protocol: http
+  host: host.docker.internal
+  port: 4005
+  auth: none
+requests:
+  - name: "List customers"
+    method: GET
+    path: "/customers"
+    extract: "id=$[0].customer_id"
+  - name: "Get customer"
+    method: GET
+    path: "/customers/${id}"
+steps:
+  - instances: 1
+    threads: 3
+    rps: 5

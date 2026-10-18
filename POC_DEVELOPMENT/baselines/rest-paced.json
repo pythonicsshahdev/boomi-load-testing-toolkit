@@ -1,0 +1,40 @@
+{
+  "run_id": "20261017-212938",
+  "saved_at": "2026-10-17T21:30:44",
+  "steps": [
+    {
+      "instances": 1,
+      "threads": 3
+    },
+    {
+      "instances": 2,
+      "threads": 3
+    }
+  ],
+  "rows": {
+    "step-01|Get customer": {
+      "samples": 228,
+      "p95_ms": 47.49999999999999,
+      "error_pct": 0.0,
+      "throughput": 9.95
+    },
+    "step-01|List customers": {
+      "samples": 231,
+      "p95_ms": 47.5,
+      "error_pct": 0.0,
+      "throughput": 10.049999999999999
+    },
+    "step-02|Get customer": {
+      "samples": 354,
+      "p95_ms": 49.240084420702686,
+      "error_pct": 0.0,
+      "throughput": 15.400826086956524
+    },
+    "step-02|List customers": {
+      "samples": 349,
+      "p95_ms": 49.07898121272552,
+      "error_pct": 0.0,
+      "throughput": 15.183127536231883
+    }
+  }
+}

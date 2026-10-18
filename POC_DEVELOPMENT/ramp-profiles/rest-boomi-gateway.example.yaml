@@ -1,0 +1,42 @@
+# TEMPLATE -- copy to a real profile name and fill in the <PLACEHOLDERS>.
+# Targets a REST API published from Boomi (API Gateway / Web Services Server listener).
+#
+# Before running:
+#   1. Put credentials in .env (never in this file):
+#        BOOMI_TEST_TARGET_API_KEY=...            (auth: api_key)
+#        BOOMI_TEST_TARGET_BASIC_AUTH_USER/PASS=...  (auth: basic)
+#   2. The host must be reachable FROM the JMeter container: a public/VPN hostname,
+#      or host.docker.internal for something on this Mac. Not localhost.
+#   3. Start gently (1 instance, a few threads, a modest rps) -- this is a real runtime.
+#   4. Record a baseline once the numbers look right:  ./ramp.sh --save-baseline <this file>
+test_plan: rest/ramp.jmx
+step_duration_sec: 60
+warmup_sec: 10
+think_time_ms: 200
+stop_rule:
+  max_error_rate_pct: 2
+  max_avg_response_ms: 3000
+regression:
+  baseline: boomi-gateway
+  max_p95_increase_pct: 30
+  max_error_rate_increase_pct: 1
+  min_p95_delta_ms: 25
+target:
+  protocol: https
+  host: "<GATEWAY-HOST, e.g. api.mycompany.com>"
+  port: 443
+  auth: api_key
+  # api_key_header: x-api-key      # change if your gateway expects another header name
+requests:
+  - name: "List orders"
+    path: "/ws/rest/<YOUR-API-BASE>/orders?limit=10"
+    extract: "id=$[0].orderId"
+  - name: "Get order"
+    path: "/ws/rest/<YOUR-API-BASE>/orders/${id}"
+steps:
+  - instances: 1
+    threads: 3
+    rps: 5
+  - instances: 1
+    threads: 6
+    rps: 15
