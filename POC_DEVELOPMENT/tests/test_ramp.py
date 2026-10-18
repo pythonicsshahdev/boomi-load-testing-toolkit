@@ -90,3 +90,76 @@ def test_query_report_rows_returns_sentinel_row_when_no_data():
     assert len(rows) == 1
     assert rows[0]["label"] == "(no data)"
     assert rows[0]["samples"] == 0
+
+def _endpoint_profile():
+    profile = _valid_profile()
+    profile["target"] = {"protocol": "http", "host": "rest-target", "port": 4005, "auth": "none"}
+    profile["requests"] = [
+        {"name": "List customers", "method": "GET", "path": "/customers?limit=5", "extract": "id=$[0].customer_id"},
+        {"name": "Get customer", "method": "GET", "path": "/customers/${id}"},
+    ]
+    return profile
+
+
+def test_validate_accepts_target_and_requests():
+    assert ramp.validate_profile(_endpoint_profile()) == []
+
+
+def test_validate_requires_target_and_requests_together():
+    profile = _endpoint_profile()
+    del profile["target"]
+    assert any("needs a 'target'" in e for e in ramp.validate_profile(profile))
+    profile = _endpoint_profile()
+    del profile["requests"]
+    assert any("needs a 'requests'" in e for e in ramp.validate_profile(profile))
+
+
+def test_validate_rejects_bad_request_fields():
+    profile = _endpoint_profile()
+    profile["requests"] = [
+        {"name": "a", "path": "customers"},
+        {"name": "a", "path": "/x", "method": "TRACE"},
+        {"name": "b", "path": "/y", "extract": "no-equals"},
+    ]
+    errors = ramp.validate_profile(profile)
+    assert any("'path' must" in e for e in errors)
+    assert any("duplicate name" in e for e in errors)
+    assert any("'method' must" in e for e in errors)
+    assert any("'extract' must" in e for e in errors)
+
+
+def test_validate_rejects_bad_target_fields():
+    profile = _endpoint_profile()
+    profile["target"] = {"protocol": "ftp", "port": 99999, "auth": "oauth"}
+    errors = ramp.validate_profile(profile)
+    assert any("target.host" in e for e in errors)
+    assert any("target.protocol" in e for e in errors)
+    assert any("target.port" in e for e in errors)
+    assert any("target.auth" in e for e in errors)
+
+
+def test_generated_plan_has_defaults_samplers_extractor_and_listener():
+    import xml.etree.ElementTree as ET
+    xml = ramp.build_plan_from_profile(_endpoint_profile())
+    root = ET.fromstring(xml)
+    names = [e.get("testname") for e in root.iter() if e.get("testname")]
+    assert "HTTP Request Defaults" in names
+    assert "List customers" in names and "Get customer" in names
+    assert "Extract id" in names
+    assert "Prometheus Listener" in names
+    assert "GET Customers List" not in names  # template's own samplers are replaced
+    assert "HTTP Authorization Manager" not in names  # auth: none
+    texts = {e.get("name"): e.text for e in root.iter("stringProp")}
+    assert texts["HTTPSampler.domain"] == "rest-target"
+    assert texts["JSONPostProcessor.jsonPathExprs"] == "$[0].customer_id"
+
+
+def test_generated_plan_adds_auth_and_body_headers():
+    profile = _endpoint_profile()
+    profile["target"]["auth"] = "api_key"
+    profile["requests"].append({"name": "Create", "method": "POST", "path": "/customers", "body": '{"a": 1}'})
+    xml = ramp.build_plan_from_profile(profile)
+    assert "x-api-key" in xml and "BOOMI_TEST_TARGET_API_KEY" in xml
+    assert "Content-Type" in xml and "postBodyRaw" in xml
+    profile["target"]["auth"] = "basic"
+    assert "HTTP Authorization Manager" in ramp.build_plan_from_profile(profile)

@@ -183,6 +183,27 @@ Try the spike pattern too — an irregular up-down-up load shape instead of a st
 
 Either hand-edit a YAML file following the schema shown in the examples above, or open `ramp-profile-builder.html` directly in a browser (no server needed — it's a fully standalone page) and use the form to generate one.
 
+#### Defining endpoints in the profile (no JMeter GUI needed)
+
+Add a `target:` and a `requests:` block (the builder page has a "Target & Endpoints" section that writes them). When both are present, `ramp.py` generates a JMeter plan for the run at `test-plans/generated/<run_id>.jmx`, using the profile's `test_plan` as the template (thread group and Prometheus listener are kept; defaults, auth and samplers are replaced). Without these blocks, `test_plan` runs unchanged.
+
+```yaml
+target:
+  protocol: http          # http | https
+  host: rest-target       # compose service name, host.docker.internal, or a public hostname
+  port: 4005              # optional (omit for 80/443)
+  auth: none              # none | basic | api_key  (credentials come from .env)
+requests:
+  - name: "List customers"        # becomes the Grafana label; must be unique
+    method: GET                   # GET | POST | PUT | PATCH | DELETE
+    path: "/customers?limit=5"
+    extract: "id=$[0].customer_id"   # optional: var=jsonpath, usable as ${id} in later paths
+  - name: "Get customer"
+    path: "/customers/${id}"
+```
+
+Optional per request: `body` (raw JSON string; adds a JSON Content-Type header). Optional on target: `api_key_header` (default `x-api-key`). See `ramp-profiles/rest-endpoints.yaml` for a working example.
+
 ---
 
 ## Part 6 — Viewing results in Grafana

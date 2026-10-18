@@ -2,12 +2,14 @@
 """Distributed ramp/spike load orchestrator for the Boomi performance testing stack."""
 import csv
 import json
+import re
 import signal
 import subprocess
 import sys
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
@@ -15,6 +17,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent
 TARGETS_DIR = REPO_ROOT / "prometheus" / "targets"
 RESULTS_DIR = REPO_ROOT / "test-plans" / "results"
+TEST_PLANS_DIR = REPO_ROOT / "test-plans"
+GENERATED_DIR = TEST_PLANS_DIR / "generated"
 PROMETHEUS_URL = "http://localhost:9090"
 # Prometheus writes a staleness marker within a few seconds of a scrape
 # target disappearing (observed empirically: ~3-4s after the target's last
@@ -301,7 +305,195 @@ def validate_profile(profile):
         v = stop_rule["max_avg_response_ms"]
         if not isinstance(v, (int, float)) or v <= 0:
             errors.append(f"stop_rule.max_avg_response_ms must be a positive number, got {v!r}")
+    errors.extend(_validate_endpoints(profile))
     return errors
+
+
+VALID_AUTH = ("none", "basic", "api_key")
+VALID_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
+EXTRACT_RE = re.compile(r"^[A-Za-z_]\w*=\S.*$")
+
+
+def _validate_endpoints(profile):
+    """Validates the optional target/requests blocks. They go together: either
+    both are present (ramp.py generates the JMeter plan) or neither is (the
+    hand-built test_plan runs as-is)."""
+    errors = []
+    has_target = "target" in profile
+    has_requests = "requests" in profile
+    if not has_target and not has_requests:
+        return errors
+    if has_requests and not has_target:
+        errors.append("'requests' needs a 'target' block (protocol/host/port)")
+    if has_target and not has_requests:
+        errors.append("'target' needs a 'requests' list")
+
+    target = profile.get("target")
+    if has_target:
+        if not isinstance(target, dict):
+            errors.append(f"target must be a mapping, got {type(target).__name__}")
+        else:
+            if not target.get("host") or not isinstance(target["host"], str):
+                errors.append("target.host is required")
+            if target.get("protocol", "http") not in ("http", "https"):
+                errors.append(f"target.protocol must be http or https, got {target.get('protocol')!r}")
+            port = target.get("port")
+            if port is not None and (not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535):
+                errors.append(f"target.port must be an integer 1-65535, got {port!r}")
+            if target.get("auth", "none") not in VALID_AUTH:
+                errors.append(f"target.auth must be one of {list(VALID_AUTH)}, got {target.get('auth')!r}")
+
+    requests = profile.get("requests")
+    if has_requests:
+        if not isinstance(requests, list) or not requests:
+            errors.append("requests must be a non-empty list")
+        else:
+            seen = set()
+            for i, req in enumerate(requests):
+                label = f"requests[{i}]"
+                if not isinstance(req, dict):
+                    errors.append(f"{label}: must be a mapping, got {type(req).__name__}")
+                    continue
+                name = req.get("name")
+                if not name or not isinstance(name, str):
+                    errors.append(f"{label}: missing 'name'")
+                elif name in seen:
+                    errors.append(f"{label}: duplicate name {name!r} (names become the Grafana labels, so must be unique)")
+                else:
+                    seen.add(name)
+                if req.get("method", "GET") not in VALID_METHODS:
+                    errors.append(f"{label}: 'method' must be one of {list(VALID_METHODS)}, got {req.get('method')!r}")
+                path = req.get("path")
+                if not isinstance(path, str) or not path.startswith("/"):
+                    errors.append(f"{label}: 'path' must be a string starting with '/', got {path!r}")
+                if "extract" in req and (not isinstance(req["extract"], str) or not EXTRACT_RE.match(req["extract"])):
+                    errors.append(f"{label}: 'extract' must look like 'var=$.json.path', got {req['extract']!r}")
+                if "body" in req and not isinstance(req["body"], str):
+                    errors.append(f"{label}: 'body' must be a string, got {type(req['body']).__name__}")
+    return errors
+
+
+def _sp(parent, name, text, tag="stringProp"):
+    el = ET.SubElement(parent, tag, name=name)
+    el.text = text
+    return el
+
+
+def _element(parent, tag, testname, **attrs):
+    el = ET.SubElement(parent, tag, testname=testname, enabled="true", **attrs)
+    ET.SubElement(parent, "hashTree")
+    return el
+
+
+def _header_manager(parent, headers):
+    hm = _element(parent, "HeaderManager", "HTTP Header Manager",
+                  guiclass="HeaderPanel", testclass="HeaderManager")
+    coll = ET.SubElement(hm, "collectionProp", name="HeaderManager.headers")
+    for name, value in headers:
+        h = ET.SubElement(coll, "elementProp", name="", elementType="Header")
+        _sp(h, "Header.name", name)
+        _sp(h, "Header.value", value)
+
+
+def _http_sampler(parent, req):
+    sampler = _element(parent, "HTTPSamplerProxy", req["name"],
+                       guiclass="HttpTestSampleGui", testclass="HTTPSamplerProxy")
+    body = req.get("body")
+    if body is not None:
+        args = ET.SubElement(sampler, "elementProp", name="HTTPsampler.Arguments", elementType="Arguments",
+                             guiclass="HTTPArgumentsPanel", testclass="Arguments", enabled="true")
+        coll = ET.SubElement(args, "collectionProp", name="Arguments.arguments")
+        arg = ET.SubElement(coll, "elementProp", name="", elementType="HTTPArgument")
+        _sp(arg, "HTTPArgument.always_encode", "false", tag="boolProp")
+        _sp(arg, "Argument.value", body)
+        _sp(arg, "Argument.metadata", "=")
+        _sp(arg, "HTTPArgument.use_equals", "true", tag="boolProp")
+        _sp(sampler, "HTTPSampler.postBodyRaw", "true", tag="boolProp")
+    else:
+        args = ET.SubElement(sampler, "elementProp", name="HTTPsampler.Arguments", elementType="Arguments")
+        ET.SubElement(args, "collectionProp", name="Arguments.arguments")
+    _sp(sampler, "HTTPSampler.path", req["path"])
+    _sp(sampler, "HTTPSampler.method", req.get("method", "GET"))
+    _sp(sampler, "HTTPSampler.follow_redirects", "true", tag="boolProp")
+    _sp(sampler, "HTTPSampler.use_keepalive", "true", tag="boolProp")
+    # _element appended the sampler's (empty) hashTree right after it; fill it.
+    children = parent.find("hashTree[last()]")
+    if "extract" in req:
+        var, path = req["extract"].split("=", 1)
+        pp = _element(children, "JSONPostProcessor", f"Extract {var}",
+                      guiclass="JSONPostProcessorGui", testclass="JSONPostProcessor")
+        _sp(pp, "JSONPostProcessor.referenceNames", var)
+        _sp(pp, "JSONPostProcessor.jsonPathExprs", path)
+        _sp(pp, "JSONPostProcessor.match_numbers", "1")
+        _sp(pp, "JSONPostProcessor.defaultValues", "NOT_FOUND")
+
+
+def build_plan_from_profile(profile):
+    """Returns JMeter plan XML (str) for the profile's target/requests blocks.
+    The profile's test_plan acts as the template: its thread group settings
+    and Prometheus Listener are kept as-is, everything between them is
+    replaced by the generated defaults/auth/samplers."""
+    tree = ET.parse(TEST_PLANS_DIR / profile["test_plan"])
+    plan_children = tree.getroot().find("hashTree").find("hashTree")
+    thread_group_tree = plan_children.findall("hashTree")[0]
+    listener = next(c for c in thread_group_tree if c.tag.endswith("PrometheusListener"))
+    listener_tree = thread_group_tree[list(thread_group_tree).index(listener) + 1]
+    for child in list(thread_group_tree):
+        thread_group_tree.remove(child)
+
+    target = profile["target"]
+    protocol = target.get("protocol", "http")
+    host = target["host"]
+    port = target.get("port")
+    base_url = f"{protocol}://{host}" + (f":{port}" if port else "")
+
+    defaults = _element(thread_group_tree, "ConfigTestElement", "HTTP Request Defaults",
+                        guiclass="HttpDefaultsGui", testclass="ConfigTestElement")
+    args = ET.SubElement(defaults, "elementProp", name="HTTPsampler.Arguments", elementType="Arguments")
+    ET.SubElement(args, "collectionProp", name="Arguments.arguments")
+    _sp(defaults, "HTTPSampler.domain", host)
+    _sp(defaults, "HTTPSampler.port", str(port) if port else "")
+    _sp(defaults, "HTTPSampler.protocol", protocol)
+    _sp(defaults, "HTTPSampler.path", "")
+
+    auth = target.get("auth", "none")
+    if auth == "basic":
+        am = _element(thread_group_tree, "AuthManager", "HTTP Authorization Manager",
+                      guiclass="AuthPanelGui", testclass="AuthManager")
+        coll = ET.SubElement(am, "collectionProp", name="AuthManager.auth_list")
+        a = ET.SubElement(coll, "elementProp", name="", elementType="Authorization")
+        _sp(a, "Authorization.url", base_url)
+        _sp(a, "Authorization.username", '${__groovy(System.getenv("BOOMI_TEST_TARGET_BASIC_AUTH_USER"))}')
+        _sp(a, "Authorization.password", '${__groovy(System.getenv("BOOMI_TEST_TARGET_BASIC_AUTH_PASS"))}')
+        _sp(a, "Authorization.mechanism", "BASIC_DIGEST")
+        _sp(am, "AuthManager.controlledByThreadGroup", "false", tag="boolProp")
+
+    headers = []
+    if auth == "api_key":
+        headers.append((target.get("api_key_header", "x-api-key"),
+                        '${__groovy(System.getenv("BOOMI_TEST_TARGET_API_KEY"))}'))
+    if any("body" in r for r in profile["requests"]):
+        headers.append(("Content-Type", "application/json"))
+    if headers:
+        _header_manager(thread_group_tree, headers)
+
+    for req in profile["requests"]:
+        _http_sampler(thread_group_tree, req)
+
+    thread_group_tree.append(listener)
+    thread_group_tree.append(listener_tree)
+    ET.indent(tree, space="  ")
+    return ET.tostring(tree.getroot(), encoding="unicode", xml_declaration=False)
+
+
+def generate_test_plan(profile, run_id):
+    """Writes the generated plan under test-plans/generated/ and returns its
+    path relative to test-plans/ (what launch_instance expects)."""
+    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+    rel = f"generated/{run_id}.jmx"
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + build_plan_from_profile(profile) + "\n"
+    (TEST_PLANS_DIR / rel).write_text(xml, encoding="utf-8")
+    return rel
 
 
 def resolve_step_duration(profile, step):
@@ -466,9 +658,14 @@ def main():
         print(f"Profile is valid: {len(profile['steps'])} step(s), test_plan={profile['test_plan']!r}")
         sys.exit(0)
 
+    run_id = time.strftime("%Y%m%d-%H%M%S")
+    if "requests" in profile:
+        generated = generate_test_plan(profile, run_id)
+        print(f"Generated test plan from profile target/requests: test-plans/{generated}")
+        profile = {**profile, "test_plan": generated}
+
     confirm_large_steps(profile, skip_confirmation)
 
-    run_id = time.strftime("%Y%m%d-%H%M%S")
     warmup_sec = profile.get("warmup_sec", 0)
     step_results = []
     stop_rule_triggered = False

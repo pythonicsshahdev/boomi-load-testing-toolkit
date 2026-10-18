@@ -2,40 +2,119 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ramp Profile Builder</title>
 <style>
-  body { font: 14px/1.5 -apple-system, sans-serif; max-width: 50rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
-  h1 { font-size: 1.4rem; }
-  label { display: block; margin-top: 0.8rem; font-weight: 600; }
-  input[type=text], input[type=number] { width: 100%; box-sizing: border-box; padding: 0.3rem; }
-  fieldset { margin-top: 1.5rem; border: 1px solid #ccc; border-radius: 6px; }
-  .step-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.5rem; align-items: end; margin: 0.5rem 0; }
-  .step-row label { margin-top: 0; font-weight: normal; font-size: 0.85rem; }
-  button { padding: 0.4rem 0.8rem; cursor: pointer; }
-  pre { background: #f5f5f5; padding: 1rem; overflow-x: auto; border-radius: 6px; white-space: pre-wrap; }
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7280;
+    --border: #e3e6ec; --accent: #2563eb; --accent-hover: #1d4ed8; --danger: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1218; --card: #181c25; --text: #e6e9ef; --muted: #98a1b3;
+            --border: #2a303c; --accent: #4f8cff; --accent-hover: #6b9fff; --danger: #f87171; }
+  }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.55 -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text);
+         max-width: 52rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  p.lede { color: var(--muted); margin-top: 0; }
+  code { background: var(--border); padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  label { display: block; margin-top: 1rem; font-weight: 600; font-size: .85rem; }
+  label small { font-weight: 400; color: var(--muted); }
+  input[type=text], input[type=number], select {
+    width: 100%; margin-top: .3rem; padding: .5rem .6rem; font: inherit; color: inherit;
+    background: var(--card); border: 1px solid var(--border); border-radius: 6px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .card, fieldset { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+                    padding: 1rem 1.25rem 1.25rem; margin-top: 1.25rem; }
+  legend { padding: 0 .5rem; font-weight: 700; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
+  .step-row { display: grid; grid-template-columns: 1fr 1fr 1.4fr auto; gap: .6rem; align-items: end;
+              margin: .6rem 0; padding: .6rem; background: var(--bg); border-radius: 8px; }
+  .req-row { display: grid; grid-template-columns: 1.2fr .7fr 2fr 1.2fr auto; gap: .6rem; align-items: end;
+             margin: .6rem 0; padding: .6rem; background: var(--bg); border-radius: 8px; }
+  .step-row label, .req-row label { margin-top: 0; font-weight: 500; font-size: .75rem; color: var(--muted); }
+  button { font: inherit; padding: .5rem 1rem; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--border); background: var(--card); color: var(--text); }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.remove { color: var(--danger); }
+  pre { background: #0f1218; color: #d6deeb; padding: 1rem; border-radius: 10px; overflow-x: auto;
+        white-space: pre-wrap; min-height: 3rem; }
+  textarea { width: 100%; margin-top: .3rem; padding: .5rem .6rem; font: 13px/1.4 ui-monospace, Menlo, monospace;
+             color: inherit; background: var(--card); border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .req-body { grid-column: 1 / -1; }
+  .req-body[hidden] { display: none; }
+  .invalid { border-color: var(--danger) !important; }
+  .msgs { margin-top: 1.25rem; padding: .75rem 1rem; border-radius: 10px; font-size: .85rem; }
+  .msgs ul { margin: .25rem 0 0; padding-left: 1.2rem; }
+  .msgs.errors { background: color-mix(in srgb, var(--danger) 12%, var(--card)); border: 1px solid var(--danger); }
+  .msgs.warns { background: color-mix(in srgb, #d97706 12%, var(--card)); border: 1px solid #d97706; }
+  .msgs[hidden] { display: none; }
+  .actions { display: flex; gap: .6rem; margin: 1.25rem 0 .6rem; align-items: center; }
+  .actions .status { color: var(--muted); font-size: .85rem; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  @media (max-width: 600px) { .grid, .step-row, .req-row { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <h1>Ramp Profile Builder</h1>
-<p>Generates the same YAML <code>ramp.py</code> reads directly. This is a convenience layer, not a replacement -- hand-editing the YAML always works too.</p>
+<p class="lede">Generates the same YAML <code>ramp.py</code> reads directly. This is a convenience layer, not a replacement -- hand-editing the YAML always works too.</p>
 
-<label>Test plan path <small>(e.g. rest/ramp.jmx)</small></label>
-<input type="text" id="testPlan" value="rest/ramp.jmx">
+<div class="card">
+  <div class="grid">
+    <div>
+      <label>Test plan path <small>(e.g. rest/ramp.jmx)</small></label>
+      <input type="text" id="testPlan" value="rest/ramp.jmx">
+    </div>
+    <div>
+      <label>Default step duration (seconds)</label>
+      <input type="number" id="stepDuration" value="60">
+    </div>
+    <div>
+      <label>Warm-up (seconds)</label>
+      <input type="number" id="warmupSec" value="15">
+    </div>
+    <div>
+      <label>Slow request threshold <small>(ms, optional)</small></label>
+      <input type="text" id="slowThreshold" value="">
+    </div>
+    <div>
+      <label>Max error rate (%)</label>
+      <input type="number" id="maxErrorRate" value="2">
+    </div>
+    <div>
+      <label>Max average response time (ms)</label>
+      <input type="number" id="maxAvgResponse" value="3000">
+    </div>
+  </div>
+</div>
 
-<label>Default step duration (seconds)</label>
-<input type="number" id="stepDuration" value="60">
-
-<label>Warm-up (seconds)</label>
-<input type="number" id="warmupSec" value="15">
-
-<label>Slow request threshold (ms, optional -- leave blank to disable)</label>
-<input type="text" id="slowThreshold" value="">
-
-<label>Max error rate (%)</label>
-<input type="number" id="maxErrorRate" value="2">
-
-<label>Max average response time (ms)</label>
-<input type="number" id="maxAvgResponse" value="3000">
+<fieldset>
+  <legend>Target &amp; Endpoints</legend>
+  <div class="grid">
+    <div>
+      <label>Protocol</label>
+      <select id="tProtocol"><option>http</option><option>https</option></select>
+    </div>
+    <div>
+      <label>Port</label>
+      <input type="number" id="tPort" value="4005">
+    </div>
+  </div>
+  <label>Host</label>
+  <input type="text" id="tHost" value="rest-target">
+  <label>Auth</label>
+  <select id="tAuth">
+    <option value="none">None</option>
+    <option value="basic">Basic (from .env BASIC_AUTH_USER / BASIC_AUTH_PASS)</option>
+    <option value="api_key">API key header (from .env API_KEY)</option>
+  </select>
+  <div id="requests"></div>
+  <button type="button" onclick="addRequest()">+ Add request</button>
+</fieldset>
 
 <fieldset>
   <legend>Steps</legend>
@@ -43,11 +122,27 @@
   <button type="button" onclick="addStep()">+ Add step</button>
 </fieldset>
 
-<p><button type="button" onclick="generate()">Generate YAML</button></p>
+<div id="errors" class="msgs errors" hidden></div>
+<div id="warns" class="msgs warns" hidden></div>
+
+<div class="actions">
+  <button type="button" class="primary" id="copyBtn" onclick="copyYaml()">Copy YAML</button>
+  <button type="button" id="downloadBtn" onclick="downloadYaml()">Download .yaml</button>
+  <span class="status" id="status">Updates live as you type.</span>
+</div>
 <pre id="output"></pre>
 
 <script>
 let stepCount = 0;
+let reqCount = 0;
+
+const BODY_METHODS = ['POST', 'PUT', 'PATCH'];
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+
+// Values go into innerHTML attributes/text, so escape them.
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
 
 function addStep(instances, threads, duration) {
   stepCount++;
@@ -55,52 +150,201 @@ function addStep(instances, threads, duration) {
   div.className = 'step-row';
   div.id = 'step-' + stepCount;
   div.innerHTML = `
-    <div><label>Instances</label><input type="number" class="s-instances" value="${instances ?? 1}"></div>
-    <div><label>Threads</label><input type="number" class="s-threads" value="${threads ?? 5}"></div>
-    <div><label>Duration override (sec, optional)</label><input type="text" class="s-duration" value="${duration ?? ''}"></div>
-    <div><button type="button" onclick="document.getElementById('step-${stepCount}').remove()">Remove</button></div>
+    <div><label>Instances</label><input type="number" class="s-instances" value="${esc(instances ?? 1)}"></div>
+    <div><label>Threads</label><input type="number" class="s-threads" value="${esc(threads ?? 5)}"></div>
+    <div><label>Duration override (sec, optional)</label><input type="text" class="s-duration" value="${esc(duration)}"></div>
+    <div><button type="button" class="remove" onclick="document.getElementById('step-${stepCount}').remove(); render()">Remove</button></div>
   `;
   document.getElementById('steps').appendChild(div);
+  render();
+}
+
+function addRequest(name, method, path, extract, body) {
+  reqCount++;
+  method = method ?? 'GET';
+  const div = document.createElement('div');
+  div.className = 'req-row';
+  div.id = 'req-' + reqCount;
+  div.innerHTML = `
+    <div><label>Name (Grafana label)</label><input type="text" class="r-name" value="${esc(name)}"></div>
+    <div><label>Method</label><select class="r-method">
+      ${METHODS.map(m => `<option${m === method ? ' selected' : ''}>${m}</option>`).join('')}
+    </select></div>
+    <div><label>Path</label><input type="text" class="r-path" value="${esc(path)}"></div>
+    <div><label>Extract JSON field as var (optional)</label><input type="text" class="r-extract" placeholder="id=$.customer_id" value="${esc(extract)}"></div>
+    <div><button type="button" class="remove" onclick="document.getElementById('req-${reqCount}').remove(); render()">Remove</button></div>
+    <div class="req-body"${BODY_METHODS.includes(method) ? '' : ' hidden'}>
+      <label>Request body <small>(raw JSON; sent with a JSON Content-Type header)</small></label>
+      <textarea class="r-body" rows="3" placeholder='{"name": "test"}'>${esc(body)}</textarea>
+    </div>
+  `;
+  document.getElementById('requests').appendChild(div);
+  render();
 }
 
 function escapeYamlScalar(s) {
   return /[:#\[\]{}]/.test(s) ? JSON.stringify(s) : s;
 }
 
-function generate() {
-  const testPlan = document.getElementById('testPlan').value.trim();
-  const stepDuration = document.getElementById('stepDuration').value.trim();
-  const warmupSec = document.getElementById('warmupSec').value.trim();
-  const slowThreshold = document.getElementById('slowThreshold').value.trim();
-  const maxErrorRate = document.getElementById('maxErrorRate').value.trim();
-  const maxAvgResponse = document.getElementById('maxAvgResponse').value.trim();
+const val = id => document.getElementById(id).value.trim();
+const isPosInt = s => /^\d+$/.test(s) && Number(s) >= 1;
 
-  let yaml = `test_plan: ${escapeYamlScalar(testPlan)}\n`;
-  yaml += `step_duration_sec: ${stepDuration}\n`;
-  yaml += `warmup_sec: ${warmupSec}\n`;
-  if (slowThreshold) {
-    yaml += `slow_request_threshold_ms: ${slowThreshold}\n`;
-  }
-  yaml += `stop_rule:\n`;
-  yaml += `  max_error_rate_pct: ${maxErrorRate}\n`;
-  yaml += `  max_avg_response_ms: ${maxAvgResponse}\n`;
-  yaml += `steps:\n`;
+// Read the whole form into one object; validation and YAML both work from it.
+function collect() {
+  return {
+    testPlan: val('testPlan'),
+    stepDuration: val('stepDuration'),
+    warmupSec: val('warmupSec'),
+    slowThreshold: val('slowThreshold'),
+    maxErrorRate: val('maxErrorRate'),
+    maxAvgResponse: val('maxAvgResponse'),
+    target: { protocol: val('tProtocol'), host: val('tHost'), port: val('tPort'), auth: val('tAuth') },
+    requests: [...document.querySelectorAll('.req-row')].map(row => {
+      const g = sel => row.querySelector(sel).value.trim();
+      return { el: row, name: g('.r-name'), method: g('.r-method'), path: g('.r-path'),
+               extract: g('.r-extract'), body: BODY_METHODS.includes(g('.r-method')) ? g('.r-body') : '' };
+    }),
+    steps: [...document.querySelectorAll('.step-row')].map(row => ({
+      el: row,
+      instances: row.querySelector('.s-instances').value.trim(),
+      threads: row.querySelector('.s-threads').value.trim(),
+      duration: row.querySelector('.s-duration').value.trim(),
+    })),
+  };
+}
 
-  const rows = document.querySelectorAll('.step-row');
-  rows.forEach(row => {
-    const instances = row.querySelector('.s-instances').value.trim();
-    const threads = row.querySelector('.s-threads').value.trim();
-    const duration = row.querySelector('.s-duration').value.trim();
-    yaml += `  - instances: ${instances}\n`;
-    yaml += `    threads: ${threads}\n`;
-    if (duration) {
-      yaml += `    duration_sec: ${duration}\n`;
+// Mirrors validate_profile() in ramp.py, so problems show here instead of at --validate time.
+function validate(p) {
+  const errors = [], warns = [], bad = [];
+  const err = (msg, ...targets) => { errors.push(msg); targets.forEach(t => bad.push(t)); };
+  const byId = id => document.getElementById(id);
+
+  if (!p.testPlan) err('Test plan path is required.', byId('testPlan'));
+  if (!isPosInt(p.stepDuration)) err('Default step duration must be a positive integer.', byId('stepDuration'));
+  if (!/^\d+$/.test(p.warmupSec)) err('Warm-up must be a non-negative integer.', byId('warmupSec'));
+  if (p.slowThreshold && !(Number(p.slowThreshold) > 0)) err('Slow request threshold must be a positive number (or blank).', byId('slowThreshold'));
+  if (p.maxErrorRate === '' || !(Number(p.maxErrorRate) >= 0 && Number(p.maxErrorRate) <= 100)) err('Max error rate must be between 0 and 100.', byId('maxErrorRate'));
+  if (!(Number(p.maxAvgResponse) > 0)) err('Max average response time must be a positive number.', byId('maxAvgResponse'));
+
+  if (!p.target.host) err('Target host is required.', byId('tHost'));
+  if (!(isPosInt(p.target.port) && Number(p.target.port) <= 65535)) err('Target port must be an integer 1-65535.', byId('tPort'));
+  if (/^https?:\/\//i.test(p.target.host) || p.target.host.includes('/')) err('Target host should be a bare hostname (no http:// or path) -- protocol and port are separate fields.', byId('tHost'));
+  if (/^(0\.0\.0\.0|localhost|127\.0\.0\.1)$/.test(p.target.host)) warns.push(`Host "${p.target.host}" refers to the JMeter container itself, not your machine. Use host.docker.internal for something running on your Mac.`);
+
+  if (p.requests.length === 0) err('Add at least one request.');
+  const seen = new Set();
+  p.requests.forEach((r, i) => {
+    const label = `Request ${i + 1}`;
+    if (!r.name) err(`${label}: name is required.`, r.el.querySelector('.r-name'));
+    else if (seen.has(r.name)) err(`${label}: duplicate name "${r.name}" (names are the Grafana labels and must be unique).`, r.el.querySelector('.r-name'));
+    else seen.add(r.name);
+    if (!r.path.startsWith('/')) err(`${label}: path must start with "/".`, r.el.querySelector('.r-path'));
+    if (r.extract && !/^[A-Za-z_]\w*=\S.*$/.test(r.extract)) err(`${label}: extract must look like var=$.json.path.`, r.el.querySelector('.r-extract'));
+    if (r.body) {
+      try { JSON.parse(r.body); } catch (e) { warns.push(`${label}: body is not valid JSON (it is sent with a JSON Content-Type).`); }
     }
   });
 
-  document.getElementById('output').textContent = yaml;
+  if (p.steps.length === 0) err('Add at least one step.');
+  p.steps.forEach((s, i) => {
+    if (!isPosInt(s.instances)) err(`Step ${i + 1}: instances must be a positive integer.`, s.el.querySelector('.s-instances'));
+    if (!isPosInt(s.threads)) err(`Step ${i + 1}: threads must be a positive integer.`, s.el.querySelector('.s-threads'));
+    if (s.duration && !isPosInt(s.duration)) err(`Step ${i + 1}: duration override must be a positive integer (or blank).`, s.el.querySelector('.s-duration'));
+  });
+  return { errors, warns, bad };
 }
 
+function toYaml(p) {
+  let yaml = `test_plan: ${escapeYamlScalar(p.testPlan)}\n`;
+  yaml += `step_duration_sec: ${p.stepDuration}\n`;
+  yaml += `warmup_sec: ${p.warmupSec}\n`;
+  if (p.slowThreshold) yaml += `slow_request_threshold_ms: ${p.slowThreshold}\n`;
+  yaml += `stop_rule:\n`;
+  yaml += `  max_error_rate_pct: ${p.maxErrorRate}\n`;
+  yaml += `  max_avg_response_ms: ${p.maxAvgResponse}\n`;
+  yaml += `target:\n`;
+  yaml += `  protocol: ${p.target.protocol}\n`;
+  yaml += `  host: ${escapeYamlScalar(p.target.host)}\n`;
+  yaml += `  port: ${p.target.port}\n`;
+  yaml += `  auth: ${p.target.auth}\n`;
+  yaml += `requests:\n`;
+  p.requests.forEach(r => {
+    yaml += `  - name: ${JSON.stringify(r.name)}\n`;
+    yaml += `    method: ${r.method}\n`;
+    yaml += `    path: ${JSON.stringify(r.path)}\n`;
+    if (r.extract) yaml += `    extract: ${JSON.stringify(r.extract)}\n`;
+    if (r.body) yaml += `    body: ${JSON.stringify(r.body)}\n`;
+  });
+  yaml += `steps:\n`;
+  p.steps.forEach(s => {
+    yaml += `  - instances: ${s.instances}\n`;
+    yaml += `    threads: ${s.threads}\n`;
+    if (s.duration) yaml += `    duration_sec: ${s.duration}\n`;
+  });
+  return yaml;
+}
+
+function showMsgs(id, title, items) {
+  const box = document.getElementById(id);
+  box.hidden = items.length === 0;
+  box.innerHTML = items.length ? `<strong>${title}</strong><ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : '';
+}
+
+// Re-runs on every edit: validate, mark bad fields, redraw YAML, gate copy/download.
+function render() {
+  const p = collect();
+  const { errors, warns, bad } = validate(p);
+  document.querySelectorAll('.invalid').forEach(n => n.classList.remove('invalid'));
+  bad.forEach(n => n.classList.add('invalid'));
+  showMsgs('errors', `Fix ${errors.length} problem${errors.length === 1 ? '' : 's'} before using this profile:`, errors);
+  showMsgs('warns', 'Heads up:', warns);
+  document.getElementById('output').textContent = toYaml(p);
+  document.getElementById('copyBtn').disabled = errors.length > 0;
+  document.getElementById('downloadBtn').disabled = errors.length > 0;
+  document.getElementById('status').textContent = errors.length ? 'Copy/download disabled until the problems above are fixed.' : 'Updates live as you type.';
+}
+
+function setStatus(msg) {
+  const s = document.getElementById('status');
+  s.textContent = msg;
+  setTimeout(render, 2000);
+}
+
+async function copyYaml() {
+  const text = document.getElementById('output').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus('Copied to clipboard.');
+  } catch (e) {
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById('output'));
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    setStatus('Clipboard blocked by the browser -- YAML is selected, press Cmd/Ctrl+C.');
+  }
+}
+
+function downloadYaml() {
+  const blob = new Blob([document.getElementById('output').textContent], { type: 'text/yaml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ramp-profile.yaml';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus('Downloaded ramp-profile.yaml -- move it into ramp-profiles/.');
+}
+
+document.addEventListener('input', render);
+document.addEventListener('change', e => {
+  if (e.target.classList.contains('r-method')) {
+    const row = e.target.closest('.req-row');
+    row.querySelector('.req-body').hidden = !BODY_METHODS.includes(e.target.value);
+  }
+  render();
+});
+
+addRequest('List customers', 'GET', '/customers?limit=5', 'id=$[0].customer_id');
+addRequest('Get customer', 'GET', '/customers/${id}');
 addStep(1, 5);
 addStep(2, 5);
 </script>

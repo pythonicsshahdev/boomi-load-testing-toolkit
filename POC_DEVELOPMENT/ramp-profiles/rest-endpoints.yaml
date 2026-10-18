@@ -1,0 +1,22 @@
+test_plan: rest/ramp.jmx
+step_duration_sec: 20
+warmup_sec: 5
+stop_rule:
+  max_error_rate_pct: 2
+  max_avg_response_ms: 3000
+target:
+  protocol: http
+  host: rest-target
+  port: 4005
+  auth: none
+requests:
+  - name: "List customers"
+    method: GET
+    path: "/customers?limit=5"
+    extract: "id=$[0].customer_id"
+  - name: "Get customer"
+    method: GET
+    path: "/customers/${id}"
+steps:
+  - instances: 1
+    threads: 3
