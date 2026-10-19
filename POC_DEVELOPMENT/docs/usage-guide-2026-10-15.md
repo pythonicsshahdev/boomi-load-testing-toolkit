@@ -216,7 +216,9 @@ steps:
     rps: 40                 # total requests/sec for the step, split evenly across its instances
 ```
 
-`rps` is a **cap**, not a guarantee: it can only throttle. If you set it higher than your threads and think time allow (roughly `threads x instances / (response time + think time)` per request), the real rate lands below it. Add threads if the summary's `Thrpt` falls short.
+**TPS instead of req/s.** Enterprises usually size load in transactions per second, so a step can say `tps: 40` instead of `rps`. One transaction is one pass through the flow (every request in `requests:`), so `tps: 40` with 2 requests per iteration is 80 req/s. `ramp.py` does that conversion for you and prints both numbers at launch. Set either `tps` or `rps` on a step, not both. In the summary table each request's `Thrpt` equals the achieved TPS, and the Grafana "Throughput (TPS)" panel shows the same thing. See `ramp-profiles/rest-boomi-phased-tps.yaml`.
+
+`rps` and `tps` are **caps**, not guarantees: they can only throttle. If you set it higher than your threads and think time allow (roughly `threads x instances / (response time + think time)` per request), the real rate lands below it. Add threads if the summary's `Thrpt` falls short.
 
 #### Regression gate (baseline comparison)
 

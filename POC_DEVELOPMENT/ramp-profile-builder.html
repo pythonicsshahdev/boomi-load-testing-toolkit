@@ -29,7 +29,7 @@
                     padding: 1rem 1.25rem 1.25rem; margin-top: 1.25rem; }
   legend { padding: 0 .5rem; font-weight: 700; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
-  .step-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1fr auto; gap: .6rem; align-items: end;
+  .step-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1fr 1fr auto; gap: .6rem; align-items: end;
               margin: .6rem 0; padding: .6rem; background: var(--bg); border-radius: 8px; }
   .req-row { display: grid; grid-template-columns: 1.2fr .7fr 2fr 1.2fr auto; gap: .6rem; align-items: end;
              margin: .6rem 0; padding: .6rem; background: var(--bg); border-radius: 8px; }
@@ -160,7 +160,7 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 }
 
-function addStep(instances, threads, duration, rps) {
+function addStep(instances, threads, duration, tps, rps) {
   stepCount++;
   const div = document.createElement('div');
   div.className = 'step-row';
@@ -169,7 +169,8 @@ function addStep(instances, threads, duration, rps) {
     <div><label>Instances</label><input type="number" class="s-instances" value="${esc(instances ?? 1)}"></div>
     <div><label>Threads</label><input type="number" class="s-threads" value="${esc(threads ?? 5)}"></div>
     <div><label>Duration override (sec, optional)</label><input type="text" class="s-duration" value="${esc(duration)}"></div>
-    <div><label>Target req/s (total, optional)</label><input type="text" class="s-rps" value="${esc(rps)}"></div>
+    <div><label>Target TPS (iterations/s, optional)</label><input type="text" class="s-tps" value="${esc(tps)}"></div>
+    <div><label>or req/s (total, optional)</label><input type="text" class="s-rps" value="${esc(rps)}"></div>
     <div><button type="button" class="remove" onclick="document.getElementById('step-${stepCount}').remove(); render()">Remove</button></div>
   `;
   document.getElementById('steps').appendChild(div);
@@ -228,6 +229,7 @@ function collect() {
       instances: row.querySelector('.s-instances').value.trim(),
       threads: row.querySelector('.s-threads').value.trim(),
       duration: row.querySelector('.s-duration').value.trim(),
+      tps: row.querySelector('.s-tps').value.trim(),
       rps: row.querySelector('.s-rps').value.trim(),
     })),
   };
@@ -276,6 +278,8 @@ function validate(p) {
   p.steps.forEach((s, i) => {
     if (!isPosInt(s.instances)) err(`Step ${i + 1}: instances must be a positive integer.`, s.el.querySelector('.s-instances'));
     if (!isPosInt(s.threads)) err(`Step ${i + 1}: threads must be a positive integer.`, s.el.querySelector('.s-threads'));
+    if (s.tps && !(Number(s.tps) > 0)) err(`Step ${i + 1}: target TPS must be a positive number (or blank).`, s.el.querySelector('.s-tps'));
+    if (s.tps && s.rps) err(`Step ${i + 1}: set either TPS or req/s, not both.`, s.el.querySelector('.s-tps'), s.el.querySelector('.s-rps'));
     if (s.rps && !(Number(s.rps) > 0)) err(`Step ${i + 1}: target req/s must be a positive number (or blank).`, s.el.querySelector('.s-rps'));
     if (s.duration && !isPosInt(s.duration)) err(`Step ${i + 1}: duration override must be a positive integer (or blank).`, s.el.querySelector('.s-duration'));
   });
@@ -316,6 +320,7 @@ function toYaml(p) {
     yaml += `  - instances: ${s.instances}\n`;
     yaml += `    threads: ${s.threads}\n`;
     if (s.duration) yaml += `    duration_sec: ${s.duration}\n`;
+    if (s.tps) yaml += `    tps: ${s.tps}\n`;
     if (s.rps) yaml += `    rps: ${s.rps}\n`;
   });
   return yaml;

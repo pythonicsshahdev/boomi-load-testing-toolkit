@@ -403,6 +403,14 @@ def _validate_pacing(profile):
                 errors.append(f"steps[{i}]: 'rps' must be a positive number, got {v!r}")
             elif not has_requests:
                 errors.append(f"steps[{i}]: 'rps' needs target/requests (it is applied to generated plans only)")
+        if isinstance(step, dict) and "tps" in step:
+            v = step["tps"]
+            if not _is_number(v) or v <= 0:
+                errors.append(f"steps[{i}]: 'tps' must be a positive number, got {v!r}")
+            elif not has_requests:
+                errors.append(f"steps[{i}]: 'tps' needs target/requests (it is applied to generated plans only)")
+            if "rps" in step:
+                errors.append(f"steps[{i}]: set either 'tps' (iterations/sec) or 'rps' (requests/sec), not both")
     return errors
 
 
@@ -531,7 +539,7 @@ def build_plan_from_profile(profile):
     if headers:
         _header_manager(thread_group_tree, headers)
 
-    if any("rps" in step for step in profile["steps"]):
+    if any("rps" in step or "tps" in step for step in profile["steps"]):
         # Per-instance cap; the launcher sets RPS_PER_MIN per step. Steps without an
         # rps leave it at the huge default, i.e. effectively unthrottled.
         tt = _element(thread_group_tree, "ConstantThroughputTimer", "Target throughput",
@@ -556,6 +564,15 @@ def generate_test_plan(profile, run_id):
     xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + build_plan_from_profile(profile) + "\n"
     (TEST_PLANS_DIR / rel).write_text(xml, encoding="utf-8")
     return rel
+
+
+def step_request_rate(profile, step):
+    """Total requests/sec cap for a step, or None for unthrottled. A TPS target
+    (flow iterations/sec) becomes tps x requests-per-iteration: every request in
+    the generated flow runs on every iteration, so the conversion is exact."""
+    if "tps" in step:
+        return step["tps"] * len(profile["requests"])
+    return step.get("rps")
 
 
 def resolve_step_duration(profile, step):
@@ -609,10 +626,13 @@ def run_step(profile, run_id, step_idx, step):
     duration = resolve_step_duration(profile, step)
     instances = step["instances"]
     threads = step["threads"]
-    rps = step.get("rps")
+    rps = step_request_rate(profile, step)
     # rps is the step's total; each instance caps itself at its share.
     rps_per_min = round(rps * 60 / instances, 3) if rps else None
-    rps_note = f", target {rps} req/s total" if rps else ""
+    if "tps" in step:
+        rps_note = f", target {step['tps']} TPS ({rps:g} req/s: {len(profile['requests'])} requests per iteration)"
+    else:
+        rps_note = f", target {rps} req/s total" if rps else ""
     print(f"[{step_id}] launching {instances} instance(s) x {threads} thread(s), duration={duration}s{rps_note}")
 
     _current_step_state["run_id"] = run_id

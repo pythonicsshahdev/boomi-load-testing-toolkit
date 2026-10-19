@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Boomi API latency by hop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --coral:#FF7C66;      /* decoration only */
+  --purple:#A03291;     /* text-safe */
+  --navy:#072B55;       /* text-safe */
+  --peri:#4B4FE2;
+  --blue:#0085F0;       /* decoration */
+  --green:#0EC38B;      /* decoration */
+  --green-text:#05694B; /* text-safe green */
+  --gray:#EDEDED;
+  --card:#fff;
+  --ink:#1b2a3d;
+  --ink-2:#3a4a5e;
+  --on-dark:#E6EEF8;
+  --on-dark-2:#B9CBE3;
+  --line:#d5dbe3;
+  --track:#E3E7ED;
+  --grad:linear-gradient(90deg,#FF7C66,#A03291);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:'Poppins',system-ui,sans-serif;font-weight:300;color:var(--ink);background:var(--gray);line-height:1.55}
+.progress{position:fixed;top:0;left:0;height:3px;width:0;background:var(--grad);z-index:50}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+h1,h2,h3{font-weight:500;letter-spacing:-.01em;margin:0}
+/* HERO */
+.hero{background:var(--grad);color:#fff;position:relative;overflow:hidden;padding:28px 0 72px}
+.hero .sph{position:absolute;border-radius:50%;background:radial-gradient(circle at 30% 28%,#fff3 0,#ffb3a6 28%,#FF7C66 62%,#d9563f 100%);opacity:.9}
+.brand{font-weight:600;font-size:26px;letter-spacing:-.02em;display:flex;align-items:baseline;gap:1px}
+.brand i{display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;margin-left:2px}
+.hero h1{font-size:clamp(30px,5vw,54px);line-height:1.12;margin-top:56px;max-width:760px}
+.hero p{font-size:18px;max-width:640px;margin:18px 0 0;color:#fff;font-weight:400}
+.pills{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+.pill{background:#ffffff26;border:1px solid #ffffff66;border-radius:999px;padding:6px 14px;font-size:13px;font-weight:400}
+/* SECTIONS */
+section{padding:56px 0}
+.eyebrow{font-size:13px;font-weight:600;color:var(--purple);margin-bottom:6px}
+h2{font-size:clamp(24px,3.2vw,34px);color:var(--navy)}
+.lede{max-width:760px;color:var(--ink-2);font-size:16px;margin:10px 0 28px;font-weight:400}
+.reveal{opacity:0;transform:translateY(14px);transition:opacity .7s ease,transform .7s ease}
+.reveal.in{opacity:1;transform:none}
+/* HOP MAP */
+.arch{background:var(--navy);border-radius:24px;padding:24px;color:var(--on-dark)}
+.arch-top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px}
+.arch-top h3{color:#fff;font-size:18px}
+.btn{font-family:inherit;font-weight:500;font-size:14px;border:0;border-radius:999px;padding:10px 20px;cursor:pointer;background:var(--grad);color:#fff}
+.btn.ghost{background:transparent;border:1px solid #ffffff66}
+.btn:focus-visible,.node:focus-visible,.link:focus-visible,.tab:focus-visible,.step-h:focus-visible,.row:focus-visible{outline:3px solid var(--coral);outline-offset:2px}
+.arch .btn:focus-visible,.arch .node:focus-visible,.arch .link:focus-visible{outline-color:#fff}
+.grid{display:grid;grid-template-columns:1fr 110px 1fr 110px 1fr;gap:10px;align-items:stretch}
+.zone{border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;justify-content:center}
+.zone h4{margin:0 0 2px;font-size:12.5px;font-weight:600;color:#fff}
+.zone small{display:block;font-weight:300;color:var(--on-dark-2);font-size:12px}
+.z-left{background:#ff7c6622;border:1px solid #ff7c6688}
+.z-mid{background:#0085f01f;border:1px solid #0085f088}
+.z-right{background:#0ec38b1f;border:1px solid #0ec38b88}
+.node{all:unset;box-sizing:border-box;cursor:pointer;background:#fff;color:var(--navy);border-radius:14px;padding:11px 13px;display:block;border:2px solid transparent;transition:.25s;box-shadow:0 2px 8px #0003}
+.node b{display:block;font-weight:600;font-size:14px}
+.node span{font-size:12px;color:var(--ink-2);font-weight:400}
+.node:hover{transform:translateY(-2px)}
+.node.sel{border-color:var(--coral);box-shadow:0 0 0 3px #ff7c6655}
+.node.live{background:#FFF1EE;border-color:var(--coral);transform:scale(1.02)}
+.node.boomi{background:#fff;border-left:6px solid var(--purple)}
+.link{all:unset;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:11px;color:var(--on-dark);font-weight:400;gap:6px;border-radius:10px;padding:6px 2px}
+.link .ar{font-size:24px;line-height:1;color:var(--coral)}
+.link b{font-weight:600;color:#fff;font-size:12px}
+.link:hover{background:#ffffff14}
+.link.sel{background:#ffffff22}
+.link.live .ar{color:#fff;transform:scale(1.3)}
+.panel{margin-top:16px;background:#fff;color:var(--ink);border-radius:16px;padding:18px 22px;min-height:120px;border-left:6px solid var(--coral)}
+.panel .tag{font-size:12px;font-weight:600;color:var(--purple)}
+.panel h3{color:var(--navy);font-size:20px;margin:2px 0 6px}
+.panel p{margin:0;font-weight:400;color:var(--ink-2);font-size:15px}
+.panel ul{margin:10px 0 0;padding-left:18px;color:var(--ink-2);font-weight:400;font-size:14px}
+.hint{font-size:12.5px;color:var(--on-dark-2);margin-top:10px}
+/* TABS */
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tab{all:unset;cursor:pointer;padding:8px 18px;border-radius:999px;background:#fff;color:var(--navy);font-weight:500;font-size:14px;border:1px solid var(--line)}
+.tab.sel{background:var(--navy);color:#fff;border-color:var(--navy)}
+/* CHART */
+.chart{background:var(--card);border-radius:20px;padding:22px;box-shadow:0 4px 18px #072b5514}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--ink-2);font-weight:400;margin-bottom:14px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.row{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:150px 1fr 250px;gap:14px;align-items:center;width:100%;padding:9px 10px;border-radius:12px;border:2px solid transparent}
+.row:hover{background:#f3f5f8}
+.row.sel{border-color:var(--coral);background:#FFF8F6}
+.row .lab{font-size:14px;color:var(--navy);font-weight:500}
+.row .lab small{display:block;font-weight:400;color:var(--ink-2);font-size:12px}
+.track{height:22px;background:var(--track);border-radius:8px;overflow:hidden;display:flex}
+.seg{height:100%;transition:width .6s ease}
+.seg.be{background:var(--blue)}
+.seg.bo{background:var(--purple)}
+.row .num{font-size:13.5px;color:var(--ink-2);font-weight:400}
+.row .num b{color:var(--navy);font-weight:600}
+.row .num em{font-style:normal;color:var(--purple);font-weight:600}
+.row .num{white-space:nowrap}
+.chart-note{font-size:13px;color:var(--ink-2);font-weight:400;margin:12px 0 0}
+/* CARDS */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
+.card{background:var(--card);border-radius:18px;padding:22px;box-shadow:0 4px 18px #072b5514}
+.card .bar{height:5px;width:44px;border-radius:3px;background:var(--grad);margin-bottom:14px}
+.card h3{font-size:17px;color:var(--navy);margin-bottom:6px}
+.card p{margin:0;font-size:14px;color:var(--ink-2);font-weight:400}
+.card .prod{display:inline-block;margin-top:12px;font-size:12px;font-weight:500;color:var(--purple);background:#A032910f;border:1px solid #A0329133;border-radius:999px;padding:3px 10px}
+/* STEPPER */
+.stepper{background:var(--card);border-radius:20px;padding:22px;box-shadow:0 4px 18px #072b5514}
+.stepper-top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.stepper-top span{color:var(--ink-2);font-weight:400;font-size:14px}
+.steps{position:relative;margin:0;padding:0;list-style:none}
+.steps::before{content:"";position:absolute;left:17px;top:18px;bottom:18px;width:2px;background:var(--line)}
+.step{position:relative;padding-left:52px;margin-bottom:6px}
+.ring{position:absolute;left:0;top:6px;width:36px;height:36px;border-radius:50%;background:#fff;border:2px solid var(--line);display:grid;place-items:center;font-weight:600;font-size:14px;color:var(--navy);transition:.3s}
+.step.act .ring{background:var(--grad);color:#fff;border-color:transparent;transform:scale(1.1)}
+.step-h{all:unset;cursor:pointer;display:block;width:100%;padding:8px 6px}
+.step-h b{font-weight:500;color:var(--navy);font-size:15.5px}
+.step-h span{display:block;color:var(--ink-2);font-size:14px;font-weight:400}
+.note{display:none;margin:2px 0 10px;background:#A032910d;border:1px solid #A0329133;border-radius:12px;padding:10px 14px;font-size:14px;color:var(--ink-2);font-weight:400}
+.note strong{color:var(--purple);font-weight:600}
+.step.open .note{display:block}
+.term{display:none;margin-top:14px;background:var(--navy);color:var(--on-dark);border-radius:14px;padding:14px 16px;font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:12.5px;white-space:pre-wrap;font-weight:400}
+.term.show{display:block}
+.closing{background:var(--grad);color:#fff;border-radius:24px;padding:40px;margin-top:10px}
+.closing h2{color:#fff}
+.closing p{color:#fff;font-weight:400;max-width:700px}
+.closing ul{margin:14px 0 0;padding-left:20px;font-weight:400}
+footer{background:var(--navy);color:var(--on-dark-2);padding:22px 0;font-size:13px;margin-top:56px}
+@media(max-width:900px){
+  .grid{grid-template-columns:1fr}
+  .link{flex-direction:row;padding:8px}
+  .link .ar{transform:rotate(90deg)}
+  .row{grid-template-columns:1fr;gap:6px}
+  .row .num{white-space:normal}
+  .hero{padding-bottom:56px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}.reveal{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+
+<header class="hero">
+  <div class="sph" style="width:220px;height:220px;right:-40px;top:-60px"></div>
+  <div class="sph" style="width:90px;height:90px;right:230px;top:60px;opacity:.7"></div>
+  <div class="sph" style="width:140px;height:140px;right:90px;bottom:-40px;opacity:.8"></div>
+  <div class="wrap">
+    <div class="brand">boomi<i></i></div>
+    <h1>Where the time goes: latency by hop through a Boomi API</h1>
+    <p>A phased load test from 10 up to 80 requests per second, run through a Boomi-published API and again straight to its backend, so the Boomi layer's share of each response can be read directly.</p>
+    <div class="pills">
+      <span class="pill">0 errors in every phase</span><span class="pill">Peak 80 requests per second</span><span class="pill">Boomi layer about 4 ms at peak</span><span class="pill">Overhead follows warm-up, not load</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section class="reveal">
+  <div class="eyebrow">The hops</div>
+  <h2>Three hops, one measured difference</h2>
+  <p class="lede">The load generator called the Boomi API, and separately called the backend it fronts. Network setup, the Boomi layer and the backend are each shown with what was measured. Select any hop, or trace a request end to end.</p>
+
+  <div class="arch">
+    <div class="arch-top">
+      <h3>Request path under test</h3>
+      <div>
+        <button class="btn" id="trace">Trace a request</button>
+        <button class="btn ghost" id="reset">Reset</button>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="zone z-left">
+        <h4>Client<small>Load generator</small></h4>
+        <button class="node" data-id="jmeter"><b>JMeter load generator</b><span>4 to 32 threads, paced to a target rate</span></button>
+      </div>
+
+      <button class="link" data-id="l1"><span class="ar">&rarr;</span><b>Network</b>keep-alive, connect time about 0.1 ms</button>
+
+      <div class="zone z-mid">
+        <h4>Boomi<small>API on a local Atom</small></h4>
+        <button class="node boomi" data-id="atom"><b>Boomi API layer</b><span>Published customers API with API-key authentication</span></button>
+      </div>
+
+      <button class="link" data-id="l2"><span class="ar">&rarr;</span><b>Downstream</b>call to the backend, not separately timed</button>
+
+      <div class="zone z-right">
+        <h4>Backend<small>System of record</small></h4>
+        <button class="node" data-id="backend"><b>Customers service</b><span>Also called directly as the control run</span></button>
+      </div>
+    </div>
+    <div class="panel" id="panel" aria-live="polite"></div>
+    <div class="hint">The purple edge marks the Boomi component. Figures in the panel follow the load phase selected in the chart below.</div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="eyebrow">Results by phase</div>
+  <h2>How each response splits between the backend and Boomi</h2>
+  <p class="lede">Each bar is the average response time through Boomi. The blue part is what the backend takes on its own, measured in the control run. The purple part is the difference, which is the Boomi layer's share. Pick a request, then select a phase to update the hop map and the trace.</p>
+  <div class="tabs" id="reqtabs" role="tablist">
+    <button class="tab sel" data-r="List" role="tab">List customers</button>
+    <button class="tab" data-r="Get" role="tab">Get one customer</button>
+  </div>
+  <div class="chart">
+    <div class="legend"><span><i style="background:var(--blue)"></i>Backend, measured directly</span><span><i style="background:var(--purple)"></i>Boomi layer, derived by difference</span></div>
+    <div id="rows"></div>
+    <p class="chart-note">Averages in milliseconds as reported by the run, rounded to whole milliseconds, so each difference carries about 1 ms of rounding. The first 8 seconds of every phase are excluded as warm-up.</p>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="eyebrow">Trace one request</div>
+  <h2>What one request spends its time on</h2>
+  <p class="lede">Open any step for the reasoning behind it, or run the sequence for the phase you selected above.</p>
+  <div class="stepper">
+    <div class="stepper-top">
+      <span id="steptitle"></span>
+      <button class="btn" id="run">Run request</button>
+    </div>
+    <ol class="steps" id="steps"></ol>
+    <div class="term" id="term"></div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="eyebrow">What the numbers say</div>
+  <h2>Four things worth taking away</h2>
+  <div class="cards">
+    <div class="card"><div class="bar"></div><h3>The network hop is not the cost</h3><p>Connect time stayed at or below 0.1 ms in every phase for both requests, because connections are reused. Roughly nine tenths or more of each response is time spent waiting on the server side.</p><span class="prod">Network</span></div>
+    <div class="card"><div class="bar"></div><h3>Overhead follows warm-up, not load</h3><p>At the same 20 requests per second, the Boomi layer added 20 to 22 ms in the second phase and only 3 to 5 ms after the peak. At the 80 requests per second peak it added about 4 ms.</p><span class="prod">Boomi layer</span></div>
+    <div class="card"><div class="bar"></div><h3>One tail event to chase</h3><p>In the second phase, the slowest 1 percent of responses reached roughly 590 to 760 ms through Boomi, and not on the direct path. It could be a pause or early warm-up, and one run cannot say which.</p><span class="prod">Needs a repeat run</span></div>
+    <div class="card"><div class="bar"></div><h3>No ceiling found yet</h3><p>Both paths stayed at zero errors and hit every target rate up to 80 requests per second. This test did not find where the API starts to struggle.</p><span class="prod">Capacity</span></div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="eyebrow">How to read this</div>
+  <h2>What this measurement is, and is not</h2>
+  <div class="cards">
+    <div class="card"><div class="bar"></div><h3>Derived, not traced</h3><p>The Boomi share is the difference between two runs, not a recorded span. It lumps together everything between Boomi receiving a request and answering it.</p></div>
+    <div class="card"><div class="bar"></div><h3>One machine</h3><p>The load generator, the Atom and the backend shared a single laptop, so these are indicative figures. Absolute numbers on separate hosts will differ, and network time will no longer be near zero.</p></div>
+    <div class="card"><div class="bar"></div><h3>Averages on purpose</h3><p>For responses this fast, the percentile buckets are too coarse to separate p50 from p95, so the page leans on averages and calls out only the clear tail event.</p></div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="closing">
+    <h2>To get true per-hop timing</h2>
+    <p>These steps would turn the derived split into measured spans and find the limit.</p>
+    <ul>
+      <li>Add finer response-time buckets so the middle percentiles are meaningful for fast APIs.</li>
+      <li>Correlate each load phase with Boomi execution records and runtime tracing to time the layer's inner steps directly.</li>
+      <li>Repeat the phased run a few times to see whether the second-phase tail event recurs.</li>
+      <li>Push beyond 80 requests per second, across several load generators, to find where errors or latency begin to climb.</li>
+    </ul>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap">Boomi. Connect everything, to achieve anything.&trade; &nbsp;|&nbsp; Indicative results from a single-machine phased run on 18 October 2026; not a capacity commitment.</div></footer>
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+/* Phase data: the run report's per-phase average response time, in ms (warm-up excluded). */
+const RATES=[10,20,40,80,20,10];
+const BOOMI={List:[20,28,13,9,14,16],Get:[15,26,9,6,9,10]};
+const DIRECT={List:[9,8,6,5,9,8],Get:[4,4,3,2,6,4]};
+const PATH={List:'/ws/rest/proxy/v1/customers',Get:'/ws/rest/proxy/v1/customers/{id}'};
+const NAME={List:'List customers',Get:'Get one customer'};
+const S={ph:3,req:'List'};
+const layer=(r,p)=>Math.max(0,BOOMI[r][p]-DIRECT[r][p]);
+const MAX=30;
+
+function figs(){
+  const p=S.ph,r=S.req;
+  return {tot:BOOMI[r][p],be:DIRECT[r][p],bo:layer(r,p),rate:RATES[p],name:NAME[r],path:PATH[r]};
+}
+function D(id){
+  const f=figs();
+  const ctx='Phase '+(S.ph+1)+' at '+f.rate+' requests per second, '+f.name.toLowerCase()+'.';
+  return {
+   jmeter:{t:'Client',h:'JMeter load generator',p:'Sends the requests at a paced rate, from 4 threads at 10 requests per second up to 32 threads at 80. Each phase ran for 40 seconds.',l:[ctx,'Pacing caps the rate; it cannot push harder than the threads allow','Every phase reached its target rate within about 3 percent']},
+   atom:{t:'Boomi · API layer',h:'Boomi API layer',p:'The published customers API on a local Atom. Its share is the average response through Boomi minus the average for the same request sent straight to the backend.',l:[ctx,'Through Boomi: '+f.tot+' ms average','Boomi layer: about '+f.bo+' ms (derived)','Early phases include runtime warm-up, which inflates this']},
+   backend:{t:'Backend',h:'Customers service',p:'The system behind the Boomi API. The control run called it directly at the same pace with the same requests, which isolates its own response time.',l:[ctx,'Measured directly: '+f.be+' ms average','Listing returns more data than a single lookup, so it takes longer']},
+   l1:{t:'Connection · Inbound',h:'Client to Boomi',p:'Connections are reused, so there is no handshake on most requests. Connect time stayed at or below 0.1 ms in every phase.',l:['Measured per request by the load generator','On one machine this is near zero; a remote Atom will add real network time']},
+   l2:{t:'Connection · Downstream',h:'Boomi to backend',p:'Boomi calls the backend to answer each request. That call is inside the Boomi layer figure and is not timed separately in this test.',l:['Separating it needs Boomi-side execution data or tracing','This is the next measurement to add']}
+  }[id];
+}
+const panel=$('#panel');
+let cur='atom';
+function show(id){
+  cur=id;const d=D(id);
+  panel.innerHTML='<div class="tag">'+d.t+'</div><h3>'+d.h+'</h3><p>'+d.p+'</p><ul>'+d.l.map(x=>'<li>'+x+'</li>').join('')+'</ul>';
+  $$('.node,.link').forEach(n=>n.classList.toggle('sel',n.dataset.id===id));
+}
+function clearLive(){$$('.live').forEach(n=>n.classList.remove('live'))}
+$$('.node,.link').forEach(n=>n.addEventListener('click',()=>{clearLive();show(n.dataset.id)}));
+let tracing=false;
+const seq=['jmeter','l1','atom','l2','backend'];
+$('#trace').onclick=async()=>{
+  if(tracing)return;tracing=true;
+  for(const id of seq){
+    clearLive();
+    const el=document.querySelector('[data-id="'+id+'"]');
+    el.classList.add('live');show(id);
+    await new Promise(r=>setTimeout(r,1100));
+  }
+  clearLive();tracing=false;
+};
+$('#reset').onclick=()=>{tracing=false;clearLive();show('atom')};
+
+/* chart */
+function renderRows(){
+  const r=S.req;
+  $('#rows').innerHTML=RATES.map((rate,p)=>{
+    const be=DIRECT[r][p],bo=layer(r,p),tot=BOOMI[r][p];
+    return '<button class="row'+(p===S.ph?' sel':'')+'" data-p="'+p+'" aria-label="Phase '+(p+1)+', '+rate+' requests per second: '+tot+' ms through Boomi, '+be+' ms backend, about '+bo+' ms Boomi layer">'
+      +'<div class="lab">Phase '+(p+1)+'<small>'+rate+' requests per second</small></div>'
+      +'<div class="track"><div class="seg be" style="width:'+(be/MAX*100)+'%"></div><div class="seg bo" style="width:'+(bo/MAX*100)+'%"></div></div>'
+      +'<div class="num"><b>'+tot+' ms</b> through Boomi<br>backend '+be+' ms &nbsp;|&nbsp; <em>Boomi layer '+bo+' ms</em></div></button>';
+  }).join('');
+  $$('.row').forEach(b=>b.addEventListener('click',()=>{S.ph=+b.dataset.p;refresh()}));
+}
+$$('#reqtabs .tab').forEach(t=>t.addEventListener('click',()=>{
+  S.req=t.dataset.r;
+  $$('#reqtabs .tab').forEach(x=>x.classList.toggle('sel',x===t));
+  refresh();
+}));
+
+/* stepper */
+function stepsData(){
+  const f=figs();
+  return [
+   ['Client sends the request','GET '+f.path+' at '+f.rate+' requests per second.','The load generator paces every phase to a fixed rate. Because that rate is a cap, the response times below are for load the system comfortably carried, not for a system pushed to its limit.'],
+   ['Connection is reused','Connect time about 0.1 ms; no new handshake.','Connect time is recorded for every request. With reused connections it was at or below 0.1 ms in all phases, so connection setup does not explain any of the latency here.'],
+   ['Boomi layer processes it','About '+f.bo+' ms, derived from the two runs.','This is the average through Boomi minus the average for the same request sent directly. It covers everything Boomi does between receiving and answering, including its call to the backend. Splitting it further needs Boomi-side execution data.'],
+   ['Backend answers','About '+f.be+' ms, measured directly.','The control run called the backend without Boomi, at the same pace and with the same requests, so this figure is the backend on its own.'],
+   ['Response returns','Average '+f.tot+' ms through Boomi, status 200.','Averages are reported because, for responses this fast, the percentile buckets are too coarse to tell apart. The single clear tail event is noted in the takeaways.']
+  ];
+}
+function renderSteps(){
+  const f=figs();
+  $('#steptitle').textContent='Phase '+(S.ph+1)+' at '+f.rate+' requests per second, '+f.name.toLowerCase();
+  const open=$$('.step').map(s=>s.classList.contains('open'));
+  $('#steps').innerHTML=stepsData().map((s,i)=>'<li class="step'+(open[i]?' open':'')+'"><div class="ring">'+(i+1)+'</div><button class="step-h"><b>'+s[0]+'</b><span>'+s[1]+'</span></button><div class="note"><strong>Why it matters:</strong> '+s[2]+'</div></li>').join('');
+  $$('.step-h').forEach(b=>b.addEventListener('click',()=>b.parentElement.classList.toggle('open')));
+}
+let running=false;
+$('#run').onclick=async()=>{
+  if(running)return;running=true;
+  const f=figs(),term=$('#term');
+  const lines=[
+   'GET '+f.path+'   ('+f.rate+' requests per second)',
+   'connect: 0.1 ms or less (connection reused)',
+   'boomi layer: about '+f.bo+' ms (derived)',
+   'backend: about '+f.be+' ms (measured directly)',
+   '200 OK | average '+f.tot+' ms through Boomi'
+  ];
+  term.classList.add('show');term.textContent='';
+  const steps=$$('.step');
+  for(let i=0;i<steps.length;i++){
+    steps.forEach(s=>s.classList.remove('act'));
+    steps[i].classList.add('act');
+    term.textContent+=(i?'\n':'')+'> '+lines[i];
+    await new Promise(r=>setTimeout(r,900));
+  }
+  steps.forEach(s=>s.classList.remove('act'));
+  running=false;
+};
+
+function refresh(){renderRows();renderSteps();show(cur)}
+refresh();
+
+/* progress + reveal */
+addEventListener('scroll',()=>{const h=document.documentElement;$('#prog').style.width=(scrollY/(h.scrollHeight-innerHeight)*100)+'%'},{passive:true});
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.08});
+$$('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

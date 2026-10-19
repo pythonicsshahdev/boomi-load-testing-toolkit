@@ -1,0 +1,104 @@
+{
+  "run_id": "20261018-131027",
+  "saved_at": "2026-10-18T13:14:44",
+  "steps": [
+    {
+      "instances": 1,
+      "threads": 8
+    },
+    {
+      "instances": 1,
+      "threads": 14
+    },
+    {
+      "instances": 1,
+      "threads": 26
+    },
+    {
+      "instances": 1,
+      "threads": 50
+    },
+    {
+      "instances": 1,
+      "threads": 14
+    },
+    {
+      "instances": 1,
+      "threads": 8
+    }
+  ],
+  "rows": {
+    "step-01|Get customer": {
+      "samples": 298,
+      "p95_ms": 48.67768595041322,
+      "error_pct": 0.0,
+      "throughput": 9.95983935742972
+    },
+    "step-01|List customers": {
+      "samples": 298,
+      "p95_ms": 49.915254237288124,
+      "error_pct": 0.0,
+      "throughput": 9.95983935742972
+    },
+    "step-02|Get customer": {
+      "samples": 593,
+      "p95_ms": 48.57954545454545,
+      "error_pct": 0.0,
+      "throughput": 19.798416126709864
+    },
+    "step-02|List customers": {
+      "samples": 601,
+      "p95_ms": 48.27079107505071,
+      "error_pct": 0.0,
+      "throughput": 20.03839692824574
+    },
+    "step-03|Get customer": {
+      "samples": 1179,
+      "p95_ms": 47.548125633232004,
+      "error_pct": 0.0,
+      "throughput": 39.32338308457711
+    },
+    "step-03|List customers": {
+      "samples": 1182,
+      "p95_ms": 48.7811203319502,
+      "error_pct": 0.0,
+      "throughput": 39.40298507462686
+    },
+    "step-04|Get customer": {
+      "samples": 2392,
+      "p95_ms": 48.1275406504065,
+      "error_pct": 0.0,
+      "throughput": 79.75999999999999
+    },
+    "step-04|List customers": {
+      "samples": 2391,
+      "p95_ms": 48.67223650385604,
+      "error_pct": 0.0,
+      "throughput": 79.72
+    },
+    "step-05|Get customer": {
+      "samples": 595,
+      "p95_ms": 47.5,
+      "error_pct": 0.0,
+      "throughput": 19.840951080408065
+    },
+    "step-05|List customers": {
+      "samples": 603,
+      "p95_ms": 48.075757575757564,
+      "error_pct": 0.0,
+      "throughput": 20.12209816049482
+    },
+    "step-06|Get customer": {
+      "samples": 288,
+      "p95_ms": 47.5,
+      "error_pct": 0.0,
+      "throughput": 9.959999999999999
+    },
+    "step-06|List customers": {
+      "samples": 287,
+      "p95_ms": 48.278688524590166,
+      "error_pct": 0.0,
+      "throughput": 9.92
+    }
+  }
+}

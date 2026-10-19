@@ -1,0 +1,40 @@
+# CONTROL for rest-boomi-phased-tps.yaml: the same TPS phases straight to the backend (port 4005 tunnel), skipping Boomi.
+test_plan: rest/ramp.jmx
+step_duration_sec: 40
+warmup_sec: 8
+think_time_ms: 200
+stop_rule:
+  max_error_rate_pct: 5
+  max_avg_response_ms: 3000
+target:
+  protocol: http
+  host: host.docker.internal
+  port: 4005
+  auth: none
+requests:
+- name: List customers
+  method: GET
+  path: /customers
+  extract: id=$[0].customer_id
+- name: Get customer
+  method: GET
+  path: /customers/${id}
+steps:
+- instances: 1
+  threads: 8
+  tps: 10
+- instances: 1
+  threads: 14
+  tps: 20
+- instances: 1
+  threads: 26
+  tps: 40
+- instances: 1
+  threads: 50
+  tps: 80
+- instances: 1
+  threads: 14
+  tps: 20
+- instances: 1
+  threads: 8
+  tps: 10

@@ -245,3 +245,30 @@ def test_compare_treats_zero_sample_rows_as_no_data_not_a_pass():
     empty = dict(_row("a", 0), samples=0)
     results = ramp.compare_to_baseline([empty], base, {})
     assert results[0]["status"] == "NO DATA"
+
+
+def test_tps_converts_to_request_rate_per_iteration():
+    profile = _endpoint_profile()  # 2 requests per iteration
+    assert ramp.step_request_rate(profile, {"tps": 10}) == 20
+    assert ramp.step_request_rate(profile, {"rps": 7}) == 7
+    assert ramp.step_request_rate(profile, {}) is None
+
+
+def test_validate_tps_rules():
+    profile = _endpoint_profile()
+    profile["steps"][0]["tps"] = 10
+    assert ramp.validate_profile(profile) == []
+    profile["steps"][0]["rps"] = 5
+    assert any("either 'tps'" in e for e in ramp.validate_profile(profile))
+    del profile["steps"][0]["rps"]
+    profile["steps"][0]["tps"] = 0
+    assert any("'tps' must be" in e for e in ramp.validate_profile(profile))
+    plain = _valid_profile()
+    plain["steps"][0]["tps"] = 5
+    assert any("'tps' needs" in e for e in ramp.validate_profile(plain))
+
+
+def test_generated_plan_has_throughput_timer_for_tps_steps():
+    profile = _endpoint_profile()
+    profile["steps"][0]["tps"] = 10
+    assert "ConstantThroughputTimer" in ramp.build_plan_from_profile(profile)
