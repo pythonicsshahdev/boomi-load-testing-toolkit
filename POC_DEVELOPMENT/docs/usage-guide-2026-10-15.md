@@ -235,7 +235,7 @@ regression:
 ./ramp.sh ramp-profiles/rest-paced-regression.yaml                   # later runs are compared against it
 ```
 
-After the summary, each step|label is compared with the baseline. A p95 increase must exceed both the percentage and the absolute-ms limits (3ms to 6ms is +100% but noise). A row with no samples counts as a failure (it can't prove there was no regression). Labels new to or missing from the baseline are reported but don't fail. Exit codes: `2` stop rule, `3` failed instance, `4` regression. A baseline is not saved from a run that hit a stop rule or had failed instances. `baselines/*.json` are meant to be committed. p95 comes from Prometheus histogram buckets (50/100/250/500... ms), so keep thresholds at 20% or more.
+After the summary, each step|label is compared with the baseline. A p95 increase must exceed both the percentage and the absolute-ms limits (3ms to 6ms is +100% but noise). A row with no samples counts as a failure (it can't prove there was no regression). Labels new to or missing from the baseline are reported but don't fail. Exit codes: `2` stop rule, `3` failed instance, `4` regression. A baseline is not saved from a run that hit a stop rule or had failed instances. `baselines/*.json` are meant to be committed. p95 comes from Prometheus histogram buckets. The `ramp.jmx` plans use fine buckets from 1 ms up (1/2/5/10/15/20/25/30/40/50/75/100/150/250... ms), but a baseline saved before 2026-10-25 used coarse 50/100/250... ms buckets, so re-save it with `--save-baseline` before trusting p95 comparisons, and keep thresholds at 20% or more.
 
 #### Testing a real Boomi-published API
 
