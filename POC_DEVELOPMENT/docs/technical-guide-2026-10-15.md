@@ -38,7 +38,7 @@ Six Docker Compose services:
 
 Three custom Prometheus collectors are defined inside each test plan's `PrometheusListener` element:
 - `jmeter_requests_total` (counter) — every sample, labeled by sampler name (`label`) and HTTP status (`code`).
-- `jmeter_response_time_ms` (histogram, buckets at 50/100/250/500/1000/2500/5000/10000ms) — per-request latency.
+- `jmeter_response_time_ms` (histogram; `ramp.jmx` buckets 1/2/5/10/15/20/25/30/40/50/75/100/150/250/500/1000/2500/5000/10000 ms, the base starters keep the coarser 50/100/250/500/1000/2500/5000/10000) — per-request latency.
 - `jmeter_failures_total` (counter) — specifically catches assertion failures that still return HTTP 200 (which a status-code-only view would miss).
 
 A `RUN_ID` is injected as a `-J` CLI property and baked into each metric's label set, so Grafana can distinguish and compare multiple runs rather than blending them into one continuous series.

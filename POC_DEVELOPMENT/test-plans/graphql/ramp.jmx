@@ -128,7 +128,7 @@
                 <stringProp name="1">label</stringProp>
                 <stringProp name="2">code</stringProp>
               </collectionProp>
-              <stringProp name="collector.quantiles_or_buckets">50,100,250,500,1000,2500,5000,10000</stringProp>
+              <stringProp name="collector.quantiles_or_buckets">1,2,5,10,15,20,25,30,40,50,75,100,150,250,500,1000,2500,5000,10000</stringProp>
               <stringProp name="listener.collector.listen_to">samples</stringProp>
               <stringProp name="listener.collector.measuring">ResponseTime</stringProp>
             </elementProp>
@@ -151,7 +151,7 @@
                 <stringProp name="1">label</stringProp>
                 <stringProp name="2">code</stringProp>
               </collectionProp>
-              <stringProp name="collector.quantiles_or_buckets">50,100,250,500,1000,2500,5000,10000</stringProp>
+              <stringProp name="collector.quantiles_or_buckets">1,2,5,10,15,20,25,30,40,50,75,100,150,250,500,1000,2500,5000,10000</stringProp>
               <stringProp name="listener.collector.listen_to">samples</stringProp>
               <stringProp name="listener.collector.measuring">ConnectTime</stringProp>
             </elementProp>
@@ -163,7 +163,7 @@
                 <stringProp name="1">label</stringProp>
                 <stringProp name="2">code</stringProp>
               </collectionProp>
-              <stringProp name="collector.quantiles_or_buckets">50,100,250,500,1000,2500,5000,10000</stringProp>
+              <stringProp name="collector.quantiles_or_buckets">1,2,5,10,15,20,25,30,40,50,75,100,150,250,500,1000,2500,5000,10000</stringProp>
               <stringProp name="listener.collector.listen_to">samples</stringProp>
               <stringProp name="listener.collector.measuring">Latency</stringProp>
             </elementProp>
