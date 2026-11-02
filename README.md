@@ -42,7 +42,7 @@ All ports bind to `127.0.0.1`. SOAP samples point at a public calculator service
 
 ## Quick start
 
-You need Docker with `docker-compose`, and Python 3 for the ramp orchestrator.
+You need Docker with `docker-compose`, and Python 3.9 or newer for the ramp orchestrator.
 
 ```bash
 cd POC_DEVELOPMENT
@@ -162,5 +162,7 @@ The repository root also holds a Boomi workspace template (`active-development/`
 ## Tests
 
 ```bash
-cd POC_DEVELOPMENT && python3 -m pytest tests -q
+cd POC_DEVELOPMENT
+.venv-ramp/bin/pip install -r requirements-dev.txt
+.venv-ramp/bin/python -m pytest tests -q
 ```

@@ -78,7 +78,7 @@ One-time setup (creates its own virtualenv, kept separate from the rest of
 this project since it's Python, not JMeter):
 
 ```bash
-python3.14 -m venv .venv-ramp
+python3 -m venv .venv-ramp          # Python 3.9 or newer
 source .venv-ramp/bin/activate
 pip install -r requirements-ramp.txt
 ```

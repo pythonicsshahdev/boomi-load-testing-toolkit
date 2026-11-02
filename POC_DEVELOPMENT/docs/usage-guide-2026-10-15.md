@@ -150,7 +150,7 @@ This is for simulating realistic load patterns — many parallel JMeter instance
 ### 5.1 One-time setup
 
 ```bash
-python3.14 -m venv .venv-ramp
+python3 -m venv .venv-ramp          # Python 3.9 or newer
 source .venv-ramp/bin/activate
 pip install -r requirements-ramp.txt
 ```
