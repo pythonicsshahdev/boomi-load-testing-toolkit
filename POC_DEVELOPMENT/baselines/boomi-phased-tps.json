@@ -1,6 +1,6 @@
 {
-  "run_id": "20261018-131027",
-  "saved_at": "2026-10-18T13:14:44",
+  "run_id": "20261102-160952",
+  "saved_at": "2026-11-02T16:14:07",
   "steps": [
     {
       "instances": 1,
@@ -29,76 +29,76 @@
   ],
   "rows": {
     "step-01|Get customer": {
-      "samples": 298,
-      "p95_ms": 48.67768595041322,
+      "samples": 297,
+      "p95_ms": 62.85714285714273,
       "error_pct": 0.0,
-      "throughput": 9.95983935742972
+      "throughput": 9.919999999999998
     },
     "step-01|List customers": {
-      "samples": 298,
-      "p95_ms": 49.915254237288124,
+      "samples": 297,
+      "p95_ms": 89.99999999999919,
       "error_pct": 0.0,
-      "throughput": 9.95983935742972
+      "throughput": 9.919999999999998
     },
     "step-02|Get customer": {
-      "samples": 593,
-      "p95_ms": 48.57954545454545,
+      "samples": 581,
+      "p95_ms": 29.046874999999993,
       "error_pct": 0.0,
-      "throughput": 19.798416126709864
+      "throughput": 20.04
     },
     "step-02|List customers": {
-      "samples": 601,
-      "p95_ms": 48.27079107505071,
+      "samples": 581,
+      "p95_ms": 74.68749999999987,
       "error_pct": 0.0,
-      "throughput": 20.03839692824574
+      "throughput": 20.04
     },
     "step-03|Get customer": {
-      "samples": 1179,
-      "p95_ms": 47.548125633232004,
+      "samples": 1197,
+      "p95_ms": 11.270833333333325,
       "error_pct": 0.0,
-      "throughput": 39.32338308457711
+      "throughput": 39.919999999999995
     },
     "step-03|List customers": {
-      "samples": 1182,
-      "p95_ms": 48.7811203319502,
+      "samples": 1212,
+      "p95_ms": 19.204545454545457,
       "error_pct": 0.0,
-      "throughput": 39.40298507462686
+      "throughput": 40.4
     },
     "step-04|Get customer": {
-      "samples": 2392,
-      "p95_ms": 48.1275406504065,
+      "samples": 2311,
+      "p95_ms": 14.548449612403095,
       "error_pct": 0.0,
-      "throughput": 79.75999999999999
+      "throughput": 79.71999999999998
     },
     "step-04|List customers": {
-      "samples": 2391,
-      "p95_ms": 48.67223650385604,
+      "samples": 2313,
+      "p95_ms": 17.561403508771917,
       "error_pct": 0.0,
-      "throughput": 79.72
+      "throughput": 79.76
     },
     "step-05|Get customer": {
-      "samples": 595,
-      "p95_ms": 47.5,
+      "samples": 581,
+      "p95_ms": 16.864583333333336,
       "error_pct": 0.0,
-      "throughput": 19.840951080408065
+      "throughput": 20.04
     },
     "step-05|List customers": {
-      "samples": 603,
-      "p95_ms": 48.075757575757564,
+      "samples": 574,
+      "p95_ms": 23.258928571428566,
       "error_pct": 0.0,
-      "throughput": 20.12209816049482
+      "throughput": 19.799999999999997
     },
     "step-06|Get customer": {
-      "samples": 288,
-      "p95_ms": 47.5,
+      "samples": 298,
+      "p95_ms": 14.148437500000002,
       "error_pct": 0.0,
-      "throughput": 9.959999999999999
+      "throughput": 9.96
     },
     "step-06|List customers": {
-      "samples": 287,
-      "p95_ms": 48.278688524590166,
+      "samples": 298,
+      "p95_ms": 22.696428571428573,
       "error_pct": 0.0,
-      "throughput": 9.92
+      "throughput": 9.96
     }
   }
 }
