@@ -15,7 +15,8 @@ Nothing in the engine is Boomi-specific. It was built to test APIs fronted by Bo
 - **Per-step summary report.** Samples, average, median, 90/95/99th percentiles, error rate and throughput per endpoint and step, printed at the end of the run.
 - **Grafana dashboard.** 16 panels: KPI cards, percentiles, a connect-time vs latency vs response-time breakdown, an endpoint summary table, slowest endpoints, and errors by status code. Filter by `run_id` and `step_id`.
 - **Slow-request detection** from the raw results files, with a configurable threshold.
-- **Visual authoring.** Edit `.jmx` files in a local JMeter or in a browser (noVNC container), and build profiles in `ramp-profile-builder.html`.
+- **Web console.** Run, stop and watch tests from a browser, with history and results, so nobody has to type shell commands.
+- **Visual authoring.** Edit `.jmx` files in a local JMeter or in a browser (noVNC container), and build profiles in `ramp-profile-builder.html` or in the console's YAML editor.
 
 ## Architecture
 
@@ -58,6 +59,19 @@ pip install -r requirements-ramp.txt
 ```
 
 Open Grafana at http://localhost:3004 and pick the printed `run_id`.
+
+## Web console
+
+You don't have to use the command line to run tests. Start the console once, then work in the browser:
+
+```bash
+cd POC_DEVELOPMENT
+./console.sh                 # then open http://localhost:8800
+```
+
+Pick a profile, see what it will do (phases, duration, peak rate), then Validate, Edit, Run, or Run and save as baseline. A live run shows progress, the current phase and the log. When it finishes you get the results table, the baseline comparison in plain words, and a link to that run in Grafana. Past runs are listed under History. It runs the same `ramp.py` underneath, so results are identical to the command line, and `./ramp.sh` keeps working for CI.
+
+It listens on `127.0.0.1` only. To use it on a VM, see [Running the console on a VM](POC_DEVELOPMENT/docs/usage-guide-2026-10-15.md#running-the-console-on-a-vm-ec2-or-similar).
 
 ## Writing a profile
 
@@ -136,6 +150,7 @@ The summary report prints in every case.
 ```
 POC_DEVELOPMENT/
   ramp.py, ramp.sh        orchestrator: profile -> plan -> runs -> report
+  console/, console.sh    web console (browser UI over ramp.py)
   run-test.sh             single-shot run of a starter plan
   smoke-test.sh           end-to-end stack check
   ramp-profiles/          example and working YAML profiles
@@ -145,7 +160,7 @@ POC_DEVELOPMENT/
   grafana/ prometheus/    provisioned dashboard, datasource and scrape config
   jmeter/ jmeter-gui/     Docker images
   sample-services/        bundled GraphQL target
-  tests/                  unit tests for ramp.py
+  tests/                  unit tests for ramp.py and the console
   docs/                   guides and design documents
 ```
 

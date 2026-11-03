@@ -220,6 +220,32 @@ steps:
 
 `rps` and `tps` are **caps**, not guarantees: they can only throttle. If you set it higher than your threads and think time allow (roughly `threads x instances / (response time + think time)` per request), the real rate lands below it. Add threads if the summary's `Thrpt` falls short.
 
+#### Planning a phased run to a total duration
+
+To make a phased run last a set time, divide the total by the number of phases and set that as `step_duration_sec`. Every step then runs for that long, so the run lasts `phases x step_duration_sec`. For 20 minutes across six phases (10 > 20 > 40 > 80 > 40 > 20 TPS), that is 1200 s / 6 = **200 s per phase**:
+
+```yaml
+step_duration_sec: 200     # 6 phases x 200 s = 1200 s = 20 minutes
+warmup_sec: 15             # excluded from each step's reported metrics
+think_time_ms: 200
+steps:
+  - { instances: 1, threads: 8,  tps: 10 }
+  - { instances: 1, threads: 14, tps: 20 }
+  - { instances: 1, threads: 26, tps: 40 }
+  - { instances: 1, threads: 50, tps: 80 }
+  - { instances: 1, threads: 26, tps: 40 }
+  - { instances: 1, threads: 14, tps: 20 }
+```
+
+The full profile is `ramp-profiles/rest-boomi-phased-tps-20min.yaml`. Notes:
+
+- **Uneven phases.** Add `duration_sec` to a step to override `step_duration_sec` for that step only, for example `duration_sec: 400` to hold the 80 TPS peak longer. The total is then the sum of the step durations.
+- **Threads per phase.** Size threads from the target: each thread sustains about `1 / (response time + think time)` iterations per second per request, so with a 200 ms think time and fast responses roughly 2.3 TPS per thread. If the summary's `Thrpt` comes in below the target, add threads (see the caps note above).
+- **Warmup counts toward the step time.** `warmup_sec` is excluded from the reported metrics but is part of `step_duration_sec`, so the run time does not change.
+- **Name a new baseline.** Give a longer or reshaped profile its own `regression.baseline` name (here `boomi-phased-tps-20min`) so it is never compared against a profile with different phases.
+- **Check before a long run.** `./ramp.sh --validate <profile>.yaml` catches mistakes in seconds, which matters for a 20-minute run against a shared Atom. `Ctrl+C` stops the running containers and exits with code 130, but prints no summary report; the steps that already finished stay visible in Grafana under the same `run_id`.
+- **Where to watch it.** Grafana is on **http://localhost:3004** (`admin` / `admin`). The run shows up under its `run_id`, with a start and end annotation for every phase.
+
 #### Regression gate (baseline comparison)
 
 ```yaml
@@ -258,6 +284,66 @@ At the top, use the `run_id` dropdown to select a specific test run (or `step_id
 
 ---
 
+## Part 7 — The web console (run tests from a browser)
+
+The console is a small web page that runs `ramp.py` for you. Use it when you would rather click than type commands. Everything it does can still be done with `./ramp.sh`, and both produce the same results.
+
+### 7.1 Start it
+
+```bash
+./console.sh
+```
+
+Then open **http://localhost:8800**. The stack from Part 3 must be up (`docker-compose up -d prometheus grafana rest-target graphql-target`), because the console starts the same JMeter containers a command-line run does. Stop the console with `Ctrl+C`. A run that is in progress keeps going without it, and the console picks it back up when you restart it.
+
+### 7.2 What you can do
+
+- **Pick a profile** from the list on the left. The card shows the total time, number of phases, peak rate, target and the phase shape (bar height is the target rate, width is the duration).
+- **Validate** checks the profile with `ramp.py`'s own validator, so the console and the command line never disagree.
+- **Run** starts it. **Run and save as baseline** starts it and, if the run is clean, records it as the baseline named in the profile's `regression:` block.
+- **Edit YAML** opens the profile in a text editor. Saving validates first, never overwrites without asking, and writes into `ramp-profiles/`. **+ New profile** starts from a template. Credentials never go in a profile; they stay in `.env`.
+- **Watch a run.** Progress, the current phase and the log update every second or two. **Stop run** ends it early: the JMeter containers are removed and the earlier phases stay visible in Grafana.
+- **Read the outcome.** Results show per-phase, per-endpoint samples, average, median, p90/p95/p99, errors and throughput. The Baseline check tab shows the comparison, and a plain-words banner says whether the run passed, hit a stop rule, had an instance fail, or regressed. **View in Grafana** opens the dashboard on that run's `run_id`.
+- **History** lists earlier runs. Click one to reopen its results and log.
+
+Only one run can be active at a time. A profile that launches more than 4 simultaneous JMeter instances asks for confirmation first, the same gate `ramp.sh` has.
+
+A profile can be opened directly with a link such as `http://localhost:8800/#profile=rest-boomi-phased-tps-20min`.
+
+### 7.3 Running the console on a VM (EC2 or similar)
+
+By default the console only listens on `127.0.0.1`, and it refuses any other address unless an access token is set, because it can start load against real systems.
+
+**Simplest and safest: keep it on localhost and tunnel to it.** On the VM run `./console.sh`, and on your laptop run:
+
+```bash
+ssh -L 8800:localhost:8800 -L 3004:localhost:3004 <user>@<vm>
+```
+
+Then browse to http://localhost:8800 as usual. No ports are opened to the network, and the Grafana links keep working.
+
+**To let a team reach it directly**, set a token and bind to the VM's address:
+
+```bash
+export CONSOLE_TOKEN=$(openssl rand -hex 24)     # at least 16 characters; or put CONSOLE_TOKEN=... in .env
+./console.sh --host 0.0.0.0 --allow-host loadtest.example.com
+```
+
+Everyone signs in with that token. Details to know:
+
+- `--allow-host` lists the DNS name people use to reach the VM. Requests addressed to any other name are refused on a localhost bind, which blocks DNS-rebinding tricks.
+- **There is no TLS in the console.** Put it behind an HTTPS reverse proxy or load balancer, or use the SSH tunnel, before sending the token over a network you don't trust. The sign-in cookie is `HttpOnly` and `SameSite=Strict`; it is only marked `Secure` if your proxy adds that.
+- It is one shared token, not per-user accounts, and one run at a time for the whole VM.
+- Don't open ports 8800, 3004 or 9090 to the internet. Grafana still has its default `admin`/`admin` login, so change that password on any shared machine.
+- `--grafana-url https://grafana.example.com` sets the link target if Grafana isn't reachable on the same host at port 3004.
+- Run history is stored under `console/runs/` on the VM (gitignored).
+
+**Linux host requirements.** Docker Engine, Python 3.9 or newer, and either the `docker-compose` binary or the Compose v2 plugin (`ramp.py` uses whichever it finds). `host.docker.internal` is mapped to the host for the JMeter containers, so profiles that target a service on the VM itself work the same way as on a Mac. Result files written into `test-plans/` by the containers are owned by root on Linux; see the Linux note in `POC_DEVELOPMENT/README.md`.
+
+> Not yet verified on a real Linux VM. The console and `ramp.py` were built and tested on macOS; the Linux-specific changes (CPU count lookup, Compose command, `host.docker.internal` mapping) are covered by unit tests and a macOS regression run, but a first run on EC2 may turn up something that is only visible there.
+
+---
+
 ## Quick reference: all the entry points in one place
 
 | What you want to do | Command |
@@ -268,5 +354,7 @@ At the top, use the `run_id` dropdown to select a specific test run (or `step_id
 | Check the whole stack is healthy | `./smoke-test.sh` |
 | Validate a ramp/spike profile | `./ramp.sh --validate <profile>.yaml` |
 | Run a ramp/spike load test | `./ramp.sh [--yes] <profile>.yaml` |
+| Run a phased test of a set length | `step_duration_sec` = total / phases (see "Planning a phased run to a total duration") |
+| Run and watch tests in a browser | `./console.sh`, then open `http://localhost:8800` |
 | Build a profile visually | open `ramp-profile-builder.html` in any browser |
 | View results | `http://localhost:3004` |

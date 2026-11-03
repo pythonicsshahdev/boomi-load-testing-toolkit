@@ -2,7 +2,9 @@
 """Distributed ramp/spike load orchestrator for the Boomi performance testing stack."""
 import csv
 import json
+import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -599,6 +601,11 @@ def delete_target_file(run_id, step_id, idx):
     target_path.unlink(missing_ok=True)
 
 
+def compose_command():
+    """The standalone docker-compose binary if present, else the Compose v2 plugin (`docker compose`)."""
+    return ["docker-compose"] if shutil.which("docker-compose") else ["docker", "compose"]
+
+
 def launch_instance(test_plan, run_id, step_id, idx, threads, duration, rps_per_min=None):
     """Launches one JMeter instance in the background. Returns the Popen handle."""
     container_name = derive_instance_name(run_id, step_id, idx)
@@ -609,7 +616,7 @@ def launch_instance(test_plan, run_id, step_id, idx, threads, duration, rps_per_
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     result_file = f"/test-plans/results/{run_id}-{step_id}-{idx}.jtl"
     cmd = [
-        "docker-compose", "run", "--rm", "--use-aliases",
+        *compose_command(), "run", "--rm", "--use-aliases",
         "--name", container_name,
         "jmeter-ramp", "-n", "-t", f"/test-plans/{test_plan}",
         "-l", result_file,
@@ -789,8 +796,7 @@ def print_regression_report(name, baseline, results):
 
 
 def host_cpu_cores():
-    result = subprocess.run(["sysctl", "-n", "hw.ncpu"], capture_output=True, text=True)
-    return int(result.stdout.strip())
+    return os.cpu_count() or 1
 
 
 def sample_host_cpu(container_names):
@@ -812,14 +818,36 @@ def sample_host_cpu(container_names):
     return total
 
 
+def write_summary_json(path, run_id, exit_code, rows, slow_requests, regression):
+    """Machine-readable run result, for the web console (same data the text report prints)."""
+    payload = {
+        "run_id": run_id,
+        "exit_code": exit_code,
+        "rows": rows,
+        # capped so a very slow target can't produce a huge file; the count says how many there were
+        "slow_requests": sorted(slow_requests, key=lambda r: r["elapsed_ms"], reverse=True)[:200],
+        "slow_request_count": len(slow_requests),
+        "regression": regression,
+    }
+    Path(path).write_text(json.dumps(payload, indent=2, default=str) + "\n")
+
+
 def main():
     args = sys.argv[1:]
     skip_confirmation = "--yes" in args
     validate_only = "--validate" in args
     save_baseline = "--save-baseline" in args
+    summary_json_path = None
+    if "--summary-json" in args:
+        i = args.index("--summary-json")
+        if i + 1 >= len(args):
+            print("--summary-json needs a file path.", file=sys.stderr)
+            sys.exit(1)
+        summary_json_path = args[i + 1]
+        del args[i:i + 2]
     args = [a for a in args if a not in ("--yes", "--validate", "--save-baseline")]
     if len(args) < 1:
-        print("Usage: ramp.py [--yes] [--validate] [--save-baseline] <profile.yaml>", file=sys.stderr)
+        print("Usage: ramp.py [--yes] [--validate] [--save-baseline] [--summary-json <path>] <profile.yaml>", file=sys.stderr)
         sys.exit(1)
 
     profile = load_profile(args[0])
@@ -839,6 +867,7 @@ def main():
         sys.exit(0)
 
     run_id = time.strftime("%Y%m%d-%H%M%S")
+    print(f"Run ID: {run_id}", flush=True)
     if "requests" in profile:
         generated = generate_test_plan(profile, run_id)
         print(f"Generated test plan from profile target/requests: test-plans/{generated}")
@@ -885,20 +914,25 @@ def main():
 
     any_instance_failed = any(code != 0 for r in step_results for code in r["exit_codes"])
     regressed = False
+    regression_info = None
     if "regression" in profile:
         regression = profile["regression"]
         name = regression["baseline"]
+        regression_info = {"baseline": name, "status": "none", "results": []}
         if save_baseline:
             if stop_rule_triggered or any_instance_failed:
                 print("Not saving baseline: this run had a stop-rule trigger or failed instances, "
                       "so it isn't a trustworthy reference.", file=sys.stderr)
+                regression_info["status"] = "not_saved"
             else:
                 BASELINES_DIR.mkdir(exist_ok=True)
                 baseline_path(name).write_text(json.dumps(build_baseline(profile, run_id, all_rows), indent=2) + "\n")
                 print(f"\nBaseline '{name}' saved to {baseline_path(name).relative_to(REPO_ROOT)}")
+                regression_info["status"] = "saved"
         elif not baseline_path(name).exists():
             print(f"\nNo baseline '{name}' yet -- skipping regression check. "
                   f"Re-run with --save-baseline to record this run as the baseline.")
+            regression_info["status"] = "no_baseline"
         else:
             baseline = json.loads(baseline_path(name).read_text())
             if baseline.get("steps") != _step_shapes(profile):
@@ -908,13 +942,20 @@ def main():
             print_regression_report(name, baseline, results)
             regressed = any(r["status"] in ("REGRESSION", "NO DATA") for r in results)
             print("\nRegression check: " + ("FAILED" if regressed else "passed"))
+            regression_info["status"] = "failed" if regressed else "passed"
+            regression_info["results"] = results
 
+    exit_code = 0
     if stop_rule_triggered:
-        sys.exit(2)
-    if any_instance_failed:
-        sys.exit(3)
-    if regressed:
-        sys.exit(4)
+        exit_code = 2
+    elif any_instance_failed:
+        exit_code = 3
+    elif regressed:
+        exit_code = 4
+
+    if summary_json_path:
+        write_summary_json(summary_json_path, run_id, exit_code, all_rows, all_slow, regression_info)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

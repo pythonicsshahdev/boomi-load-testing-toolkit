@@ -272,3 +272,14 @@ def test_generated_plan_has_throughput_timer_for_tps_steps():
     profile = _endpoint_profile()
     profile["steps"][0]["tps"] = 10
     assert "ConstantThroughputTimer" in ramp.build_plan_from_profile(profile)
+
+
+def test_host_cpu_cores_works_without_sysctl():
+    assert ramp.host_cpu_cores() >= 1
+
+
+def test_compose_command_prefers_standalone_binary_then_plugin(monkeypatch):
+    monkeypatch.setattr(ramp.shutil, "which", lambda name: "/usr/local/bin/docker-compose")
+    assert ramp.compose_command() == ["docker-compose"]
+    monkeypatch.setattr(ramp.shutil, "which", lambda name: None)
+    assert ramp.compose_command() == ["docker", "compose"]

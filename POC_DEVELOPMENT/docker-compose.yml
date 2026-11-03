@@ -18,6 +18,10 @@ services:
     env_file:
       - path: .env
         required: false
+    # Docker Desktop provides host.docker.internal itself; on a Linux host this
+    # maps it to the host so profiles that target "the machine running the stack" work there too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     profiles: ["tools"]
 
   # Identical to jmeter, but under its own service name/alias. ramp.py's
@@ -41,6 +45,10 @@ services:
     env_file:
       - path: .env
         required: false
+    # Docker Desktop provides host.docker.internal itself; on a Linux host this
+    # maps it to the host so profiles that target "the machine running the stack" work there too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     profiles: ["tools"]
 
   jmeter-gui:
