@@ -30,6 +30,9 @@ PROMETHEUS_URL = "http://localhost:9090"
 # querying at step_end itself is a race. Backing the query instant off by
 # one full scrape_interval reliably lands before the staleness cutoff.
 QUERY_SETTLE_SEC = 5
+# A step needs at least this much measured time (after warmup) beyond the settle margin,
+# so Prometheus gets a few scrapes inside the reporting window.
+MIN_MEASURED_SEC = 10
 GRAFANA_URL = "http://localhost:3004"
 GRAFANA_AUTH = ("admin", "admin")
 CONFIRMATION_THRESHOLD = 4
@@ -240,6 +243,54 @@ def scan_slow_requests(run_id, step_id, instances, threshold_ms):
     return slow
 
 
+def scan_jtl_failures(run_id, step_id, instances, top_n=3):
+    """Failures straight from JMeter's own results files, which don't depend on Prometheus scrape timing.
+    Returns {"step_id", "total", "failed", "top": [(code, message, count), ...]}."""
+    total = failed = 0
+    counts = {}
+    for idx in range(1, instances + 1):
+        jtl_path = RESULTS_DIR / f"{run_id}-{step_id}-{idx}.jtl"
+        if not jtl_path.exists():
+            continue
+        with open(jtl_path, newline="") as f:
+            for row in csv.DictReader(f):
+                total += 1
+                if row.get("success", "true").lower() != "true":
+                    failed += 1
+                    key = (row.get("responseCode", ""), (row.get("responseMessage", "") or "")[:160])
+                    counts[key] = counts.get(key, 0) + 1
+    top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+    return {"step_id": step_id, "total": total, "failed": failed,
+            "top": [(code, msg, n) for (code, msg), n in top]}
+
+
+def print_jtl_failures(summaries):
+    """Prints steps that had failed samples, with the most common error messages."""
+    bad = [x for x in summaries if x["failed"] > 0]
+    if not bad:
+        return
+    print()
+    print("=== Failures seen in JMeter's raw results ===")
+    for x in bad:
+        pct = 100.0 * x["failed"] / x["total"] if x["total"] else 0.0
+        print(f"{x['step_id']}: {x['failed']} of {x['total']} samples failed ({pct:.1f}%)")
+        for code, msg, n in x["top"]:
+            print(f"    {n} x [{code}] {msg}")
+
+
+def short_step_warnings(profile):
+    """Steps too short for Prometheus (scraped every few seconds) to measure reliably."""
+    warnings = []
+    warmup = profile.get("warmup_sec", 0)
+    for i, step in enumerate(profile["steps"]):
+        duration = step.get("duration_sec", profile.get("step_duration_sec"))
+        if isinstance(duration, (int, float)) and duration - warmup < MIN_MEASURED_SEC + QUERY_SETTLE_SEC:
+            warnings.append(f"step-{i + 1:02d}: only {duration - warmup:g}s of measured time after warmup; "
+                            f"results from steps shorter than about {MIN_MEASURED_SEC + QUERY_SETTLE_SEC + warmup:g}s "
+                            f"can be incomplete or empty. Use a longer duration_sec.")
+    return warnings
+
+
 def print_slow_requests_table(rows, total_requests):
     print()
     print(f"=== Slow Requests (total requests: {total_requests}, slow: {len(rows)}) ===")
@@ -315,6 +366,12 @@ def validate_profile(profile):
 
 
 VALID_AUTH = ("none", "basic", "api_key")
+# Database load tests (target.protocol: jdbc). The driver jar must be in the jmeter image (jmeter/Dockerfile).
+JDBC_DRIVERS = {
+    "postgresql": {"class": "org.postgresql.Driver", "url": "jdbc:postgresql://{host}:{port}/{database}", "port": 5432},
+}
+JDBC_PARAM_TYPES = ("INTEGER", "BIGINT", "SMALLINT", "VARCHAR", "DECIMAL", "DOUBLE", "BOOLEAN", "TIMESTAMP")
+JDBC_QUERY_TYPES = ("select", "update")
 VALID_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 EXTRACT_RE = re.compile(r"^[A-Za-z_]\w*=\S.*$")
 
@@ -334,6 +391,8 @@ def _validate_endpoints(profile):
         errors.append("'target' needs a 'requests' list")
 
     target = profile.get("target")
+    if isinstance(target, dict) and target.get("protocol") == "jdbc":
+        return errors + _validate_jdbc(profile)
     if has_target:
         if not isinstance(target, dict):
             errors.append(f"target must be a mapping, got {type(target).__name__}")
@@ -375,6 +434,73 @@ def _validate_endpoints(profile):
                     errors.append(f"{label}: 'extract' must look like 'var=$.json.path', got {req['extract']!r}")
                 if "body" in req and not isinstance(req["body"], str):
                     errors.append(f"{label}: 'body' must be a string, got {type(req['body']).__name__}")
+    return errors
+
+
+def _validate_jdbc(profile):
+    """Validates a database target: target.protocol is jdbc and each request is a SQL query."""
+    errors = []
+    target = profile["target"]
+    driver = target.get("driver")
+    if driver not in JDBC_DRIVERS:
+        errors.append(f"target.driver must be one of {list(JDBC_DRIVERS)} for protocol jdbc, got {driver!r}")
+    if not target.get("host") or not isinstance(target["host"], str):
+        errors.append("target.host is required")
+    if not target.get("database") or not isinstance(target["database"], str):
+        errors.append("target.database is required for protocol jdbc")
+    port = target.get("port")
+    if port is not None and (not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535):
+        errors.append(f"target.port must be an integer 1-65535, got {port!r}")
+    if target.get("auth", "none") != "none":
+        errors.append("target.auth does not apply to jdbc; the login comes from BOOMI_TEST_DB_USER and "
+                      "BOOMI_TEST_DB_PASSWORD in .env, never from the profile")
+    allow_writes = target.get("allow_writes", False)
+    if not isinstance(allow_writes, bool):
+        errors.append(f"target.allow_writes must be true or false, got {allow_writes!r}")
+
+    requests = profile.get("requests")
+    if "requests" not in profile:
+        return errors
+    if not isinstance(requests, list) or not requests:
+        return errors + ["requests must be a non-empty list of queries"]
+    seen = set()
+    for i, req in enumerate(requests):
+        label = f"requests[{i}]"
+        if not isinstance(req, dict):
+            errors.append(f"{label}: must be a mapping, got {type(req).__name__}")
+            continue
+        name = req.get("name")
+        if not name or not isinstance(name, str):
+            errors.append(f"{label}: missing 'name'")
+        elif name in seen:
+            errors.append(f"{label}: duplicate name {name!r} (names become the Grafana labels, so must be unique)")
+        else:
+            seen.add(name)
+        for key in ("method", "path", "body", "extract"):
+            if key in req:
+                errors.append(f"{label}: '{key}' is an HTTP field and does not apply to a jdbc query")
+        sql = req.get("sql")
+        if not isinstance(sql, str) or not sql.strip():
+            errors.append(f"{label}: 'sql' must be a non-empty string")
+            continue
+        query_type = req.get("query_type", "select")
+        if query_type not in JDBC_QUERY_TYPES:
+            errors.append(f"{label}: 'query_type' must be one of {list(JDBC_QUERY_TYPES)}, got {query_type!r}")
+        elif query_type == "update" and allow_writes is not True:
+            errors.append(f"{label}: this query writes to the database; set target.allow_writes: true to run it")
+        params = req.get("params", [])
+        if not isinstance(params, list):
+            errors.append(f"{label}: 'params' must be a list of {{value, type}} entries")
+            continue
+        for j, param in enumerate(params):
+            if not isinstance(param, dict) or "value" not in param:
+                errors.append(f"{label}.params[{j}]: must be a mapping with 'value' and 'type'")
+            elif param.get("type") not in JDBC_PARAM_TYPES:
+                errors.append(f"{label}.params[{j}]: 'type' must be one of {list(JDBC_PARAM_TYPES)}, got {param.get('type')!r}")
+            elif "," in str(param["value"]) and "${" not in str(param["value"]):
+                errors.append(f"{label}.params[{j}]: a value cannot contain a comma")
+        if sql.count("?") != len(params):
+            errors.append(f"{label}: the sql has {sql.count('?')} '?' placeholder(s) but params has {len(params)} entr{'y' if len(params) == 1 else 'ies'}")
     return errors
 
 
@@ -492,6 +618,69 @@ def _http_sampler(parent, req, think_default=0):
         _sp(pp, "JSONPostProcessor.defaultValues", "NOT_FOUND")
 
 
+def _add_throughput_timer(thread_group_tree, profile):
+    if any("rps" in step or "tps" in step for step in profile["steps"]):
+        # Per-instance cap; the launcher sets RPS_PER_MIN per step. Steps without an
+        # rps leave it at the huge default, i.e. effectively unthrottled.
+        tt = _element(thread_group_tree, "ConstantThroughputTimer", "Target throughput",
+                      guiclass="TestBeanGUI", testclass="ConstantThroughputTimer")
+        _sp(tt, "calcMode", "2", tag="intProp")
+        _sp(tt, "throughput", "${__P(RPS_PER_MIN,6000000)}")
+
+
+def _jdbc_sampler(parent, req, think_default=0):
+    params = req.get("params", [])
+    write = req.get("query_type", "select") == "update"
+    kind = ("Prepared " if params else "") + ("Update" if write else "Select") + " Statement"
+    sampler = _element(parent, "JDBCSampler", req["name"], guiclass="TestBeanGUI", testclass="JDBCSampler")
+    _sp(sampler, "dataSource", "db")
+    _sp(sampler, "query", req["sql"].strip())
+    _sp(sampler, "queryArguments", ",".join(str(p["value"]) for p in params))
+    _sp(sampler, "queryArgumentsTypes", ",".join(p["type"] for p in params))
+    _sp(sampler, "queryTimeout", "")
+    _sp(sampler, "queryType", kind)
+    # Count rows instead of materialising the result set: the load generator's own memory and CPU
+    # should not be what limits the test.
+    _sp(sampler, "resultSetHandler", "Count Records")
+    _sp(sampler, "resultSetMaxRows", "")
+    _sp(sampler, "resultVariable", "")
+    _sp(sampler, "variableNames", "")
+    children = parent.find("hashTree[last()]")
+    think = req.get("think_time_ms", think_default)
+    if think:
+        timer = _element(children, "ConstantTimer", "Think time",
+                         guiclass="ConstantTimerGui", testclass="ConstantTimer")
+        _sp(timer, "ConstantTimer.delay", str(int(think)))
+
+
+def _add_jdbc_elements(thread_group_tree, profile):
+    target = profile["target"]
+    driver = JDBC_DRIVERS[target["driver"]]
+    url = driver["url"].format(host=target["host"], port=target.get("port", driver["port"]), database=target["database"])
+    ds = _element(thread_group_tree, "JDBCDataSource", "JDBC Connection Configuration",
+                  guiclass="TestBeanGUI", testclass="JDBCDataSource")
+    _sp(ds, "dataSource", "db")
+    _sp(ds, "dbUrl", url)
+    _sp(ds, "driver", driver["class"])
+    _sp(ds, "username", '${__groovy(System.getenv("BOOMI_TEST_DB_USER"))}')
+    _sp(ds, "password", '${__groovy(System.getenv("BOOMI_TEST_DB_PASSWORD"))}')
+    # 0 = each thread keeps its own connection: no pool contention muddying the measurement.
+    _sp(ds, "poolMax", "0")
+    _sp(ds, "timeout", "10000")
+    _sp(ds, "autocommit", "true", tag="boolProp")
+    _sp(ds, "keepAlive", "true", tag="boolProp")
+    _sp(ds, "checkQuery", "SELECT 1")
+    _sp(ds, "connectionAge", "5000")
+    _sp(ds, "connectionProperties", "")
+    _sp(ds, "initQuery", "")
+    _sp(ds, "transactionIsolation", "DEFAULT")
+    _sp(ds, "trimInterval", "60000")
+    _sp(ds, "preinit", "false", tag="boolProp")
+    _add_throughput_timer(thread_group_tree, profile)
+    for req in profile["requests"]:
+        _jdbc_sampler(thread_group_tree, req, profile.get("think_time_ms", 0))
+
+
 def build_plan_from_profile(profile):
     """Returns JMeter plan XML (str) for the profile's target/requests blocks.
     The profile's test_plan acts as the template: its thread group settings
@@ -507,6 +696,12 @@ def build_plan_from_profile(profile):
 
     target = profile["target"]
     protocol = target.get("protocol", "http")
+    if protocol == "jdbc":
+        _add_jdbc_elements(thread_group_tree, profile)
+        thread_group_tree.append(listener)
+        thread_group_tree.append(listener_tree)
+        ET.indent(tree, space="  ")
+        return ET.tostring(tree.getroot(), encoding="unicode", xml_declaration=False)
     host = target["host"]
     port = target.get("port")
     base_url = f"{protocol}://{host}" + (f":{port}" if port else "")
@@ -541,13 +736,7 @@ def build_plan_from_profile(profile):
     if headers:
         _header_manager(thread_group_tree, headers)
 
-    if any("rps" in step or "tps" in step for step in profile["steps"]):
-        # Per-instance cap; the launcher sets RPS_PER_MIN per step. Steps without an
-        # rps leave it at the huge default, i.e. effectively unthrottled.
-        tt = _element(thread_group_tree, "ConstantThroughputTimer", "Target throughput",
-                      guiclass="TestBeanGUI", testclass="ConstantThroughputTimer")
-        _sp(tt, "calcMode", "2", tag="intProp")
-        _sp(tt, "throughput", "${__P(RPS_PER_MIN,6000000)}")
+    _add_throughput_timer(thread_group_tree, profile)
 
     for req in profile["requests"]:
         _http_sampler(thread_group_tree, req, profile.get("think_time_ms", 0))
@@ -818,7 +1007,7 @@ def sample_host_cpu(container_names):
     return total
 
 
-def write_summary_json(path, run_id, exit_code, rows, slow_requests, regression):
+def write_summary_json(path, run_id, exit_code, rows, slow_requests, regression, failures=None, no_data_steps=None):
     """Machine-readable run result, for the web console (same data the text report prints)."""
     payload = {
         "run_id": run_id,
@@ -828,6 +1017,8 @@ def write_summary_json(path, run_id, exit_code, rows, slow_requests, regression)
         "slow_requests": sorted(slow_requests, key=lambda r: r["elapsed_ms"], reverse=True)[:200],
         "slow_request_count": len(slow_requests),
         "regression": regression,
+        "failures": failures or [],
+        "no_data_steps": no_data_steps or [],
     }
     Path(path).write_text(json.dumps(payload, indent=2, default=str) + "\n")
 
@@ -873,6 +1064,9 @@ def main():
         print(f"Generated test plan from profile target/requests: test-plans/{generated}")
         profile = {**profile, "test_plan": generated}
 
+    for warning in short_step_warnings(profile):
+        print(f"WARNING: {warning}", file=sys.stderr)
+
     confirm_large_steps(profile, skip_confirmation)
 
     warmup_sec = profile.get("warmup_sec", 0)
@@ -908,6 +1102,14 @@ def main():
         if slow_threshold:
             all_slow.extend(scan_slow_requests(run_id, r["step_id"], r["instances_launched"], slow_threshold))
     print_summary_report(all_rows)
+    jtl_failures = [scan_jtl_failures(run_id, r["step_id"], r["instances_launched"]) for r in step_results]
+    print_jtl_failures(jtl_failures)
+    no_data_steps = sorted({row["step_id"] for row in all_rows}
+                           - {row["step_id"] for row in all_rows if row["samples"] > 0})
+    if no_data_steps:
+        print(f"\nWARNING: no measurable samples for {', '.join(no_data_steps)}. The run did not produce usable "
+              f"numbers (the step may be too short, the target unreachable, or every request failing -- see the "
+              f"raw-results section above and the log).", file=sys.stderr)
     if slow_threshold:
         total_requests = sum(row["samples"] for row in all_rows)
         print_slow_requests_table(all_slow, total_requests)
@@ -952,9 +1154,12 @@ def main():
         exit_code = 3
     elif regressed:
         exit_code = 4
+    elif no_data_steps:
+        exit_code = 5
 
     if summary_json_path:
-        write_summary_json(summary_json_path, run_id, exit_code, all_rows, all_slow, regression_info)
+        write_summary_json(summary_json_path, run_id, exit_code, all_rows, all_slow, regression_info,
+                           jtl_failures, no_data_steps)
     sys.exit(exit_code)
 
 

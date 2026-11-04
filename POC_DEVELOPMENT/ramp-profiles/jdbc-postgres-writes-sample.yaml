@@ -1,0 +1,23 @@
+# Write load against the sample's scratch table (load_test_events). Writes are off unless the profile
+# says allow_writes: true, so a query that changes data can never run by accident.
+test_plan: rest/ramp.jmx
+step_duration_sec: 20
+warmup_sec: 3
+stop_rule:
+  max_error_rate_pct: 5
+  max_avg_response_ms: 2000
+target:
+  protocol: jdbc
+  driver: postgresql
+  host: postgres-target
+  port: 5432
+  database: loadtest
+  allow_writes: true
+requests:
+- name: Insert event
+  query_type: update
+  sql: INSERT INTO load_test_events (payload) VALUES (?)
+  params:
+  - { value: "event-${__threadNum}-${__counter(TRUE,)}", type: VARCHAR }
+steps:
+- { instances: 1, threads: 4, tps: 100 }

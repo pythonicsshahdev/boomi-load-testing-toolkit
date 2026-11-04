@@ -55,7 +55,7 @@ def summarize(profile, baselines_dir=None):
         "peak_rps": max((s["rps"] for s in steps if isinstance(s["rps"], (int, float))), default=None),
         "warmup_sec": profile.get("warmup_sec", 0),
         "test_plan": profile.get("test_plan"),
-        "target": {k: target.get(k) for k in ("protocol", "host", "port", "auth")} if target else None,
+        "target": {k: target.get(k) for k in ("protocol", "driver", "host", "port", "database", "auth")} if target else None,
         "requests": [r.get("name") or f"{r.get('method', 'GET')} {r.get('path', '')}"
                      for r in profile.get("requests", []) if isinstance(r, dict)],
         "baseline": baseline,

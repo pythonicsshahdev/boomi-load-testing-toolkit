@@ -9,6 +9,7 @@ Nothing in the engine is Boomi-specific. It was built to test APIs fronted by Bo
 - **Profile-driven runs.** A YAML profile defines the target, the requests, and the steps. `ramp.py` generates the JMeter plan from it, so test authors don't need to open the JMeter GUI.
 - **Ramp, spike and phased load.** One schema covers all of them. Each step sets its own threads and instance count, and optionally its own duration.
 - **TPS or request-rate targets.** A step can ask for `tps: 40` (flow iterations per second) or `rps: 80` (requests per second). The toolkit converts between them and prints both at launch.
+- **Database load tests.** The same profiles can drive SQL queries over JDBC (PostgreSQL today), with a bundled sample database to try it on. Writes are off unless a profile opts in.
 - **Chained requests.** A request can extract a value (for example an `id` from a list response) and use it in later paths.
 - **Stop rules.** A run halts when the error rate or average response time crosses a threshold.
 - **Regression gate.** Save a known-good run as a baseline, and later runs are compared against it. Exit code `4` means a regression.
@@ -124,8 +125,9 @@ Example profiles are in `POC_DEVELOPMENT/ramp-profiles/`, including a Boomi gate
 | 2 | A stop rule triggered |
 | 3 | At least one JMeter instance exited non-zero |
 | 4 | Regression against the baseline |
+| 5 | No usable data: a step recorded no measurable samples (too short, target unreachable, or every request failing) |
 
-The summary report prints in every case.
+The summary report prints in every case. When requests failed, it also lists the most common error messages straight from JMeter's raw results, so a wrong password or a dead host shows up as text, not as a quiet zero.
 
 ## Testing a Boomi-published API
 

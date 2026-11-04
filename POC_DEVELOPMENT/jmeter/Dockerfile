@@ -2,6 +2,7 @@ FROM eclipse-temurin:17-jre-jammy
 
 ARG JMETER_VERSION=5.6.3
 ARG JMETER_PROMETHEUS_PLUGIN_VERSION=0.7.1
+ARG POSTGRES_JDBC_VERSION=42.7.4
 ENV JMETER_HOME=/opt/apache-jmeter-${JMETER_VERSION}
 ENV PATH="${JMETER_HOME}/bin:${PATH}"
 
@@ -15,6 +16,10 @@ RUN curl -fsSL "https://dlcdn.apache.org/jmeter/binaries/apache-jmeter-${JMETER_
 
 RUN curl -fsSL "https://github.com/johrstrom/jmeter-prometheus-plugin/releases/download/${JMETER_PROMETHEUS_PLUGIN_VERSION}/jmeter-prometheus-plugin-${JMETER_PROMETHEUS_PLUGIN_VERSION}.jar" \
     -o "${JMETER_HOME}/lib/ext/jmeter-prometheus-plugin-${JMETER_PROMETHEUS_PLUGIN_VERSION}.jar"
+
+# JDBC driver for database load tests (protocol: jdbc, driver: postgresql). Drivers live in lib/, not lib/ext/.
+RUN curl -fsSL "https://repo1.maven.org/maven2/org/postgresql/postgresql/${POSTGRES_JDBC_VERSION}/postgresql-${POSTGRES_JDBC_VERSION}.jar" \
+    -o "${JMETER_HOME}/lib/postgresql-${POSTGRES_JDBC_VERSION}.jar"
 
 COPY jmeter.properties.append /tmp/jmeter.properties.append
 RUN cat /tmp/jmeter.properties.append >> "${JMETER_HOME}/bin/jmeter.properties" \

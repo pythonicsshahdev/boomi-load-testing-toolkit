@@ -116,7 +116,8 @@ asks for confirmation before launching anything (not just before the large
 step) — pass `--yes` to skip this for unattended use.
 
 Exit codes: `0` clean run, `2` the stop rule triggered, `3` at least one
-instance exited non-zero. The summary report still prints in all three cases.
+instance exited non-zero, `4` regression against the baseline, `5` no usable data
+(a step recorded no measurable samples). The summary report still prints in every case.
 
 Results land in `test-plans/results/<run_id>-<step_id>-<idx>.jtl` (same
 gitignored pattern as the starters' `.jtl` files); Grafana gets a

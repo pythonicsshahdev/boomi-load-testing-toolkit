@@ -162,7 +162,7 @@ def wait_done(mgr, run_id, timeout=20):
     raise AssertionError("run did not finish")
 
 
-@pytest.mark.parametrize("code,status", [("0", "passed"), ("2", "stop_rule"), ("3", "instance_failed"), ("4", "regression")])
+@pytest.mark.parametrize("code,status", [("0", "passed"), ("2", "stop_rule"), ("3", "instance_failed"), ("4", "regression"), ("5", "no_data")])
 def test_run_outcome_maps_exit_code_to_status(env, code, status):
     env.mode["value"] = code
     state = wait_done(env, env.start("small")["id"])

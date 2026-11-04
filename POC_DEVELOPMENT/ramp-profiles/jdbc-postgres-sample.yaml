@@ -1,0 +1,38 @@
+# Database load test against the bundled sample Postgres.
+# Start it first:  docker-compose up -d postgres-target
+# One iteration runs the three queries below, so tps: 20 is 60 queries/sec.
+# The login comes from .env (BOOMI_TEST_DB_USER / BOOMI_TEST_DB_PASSWORD); the defaults are the sample's own.
+test_plan: rest/ramp.jmx
+step_duration_sec: 30
+warmup_sec: 5
+think_time_ms: 20
+stop_rule:
+  max_error_rate_pct: 5
+  max_avg_response_ms: 2000
+regression:
+  baseline: jdbc-postgres-sample
+  max_p95_increase_pct: 30
+  min_p95_delta_ms: 10
+target:
+  protocol: jdbc
+  driver: postgresql
+  host: postgres-target      # the sample's service name on the compose network
+  port: 5432
+  database: loadtest
+requests:
+- name: Customer by id
+  sql: SELECT id, name, email, city FROM customers WHERE id = ?
+  params:
+  - { value: "${__Random(1,100000)}", type: INTEGER }
+- name: Orders total for customer
+  sql: SELECT count(*), coalesce(sum(total), 0) FROM orders WHERE customer_id = ?
+  params:
+  - { value: "${__Random(1,100000)}", type: INTEGER }
+- name: Customers per city
+  sql: SELECT city, count(*) FROM customers WHERE city = ? GROUP BY city
+  params:
+  - { value: Boston, type: VARCHAR }
+steps:
+- { instances: 1, threads: 2,  tps: 20 }
+- { instances: 1, threads: 5,  tps: 50 }
+- { instances: 1, threads: 10, tps: 100 }

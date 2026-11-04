@@ -16,7 +16,7 @@ from pathlib import Path
 
 from console import profiles
 
-STATUS_BY_EXIT = {0: "passed", 1: "error", 2: "stop_rule", 3: "instance_failed", 4: "regression"}
+STATUS_BY_EXIT = {0: "passed", 1: "error", 2: "stop_rule", 3: "instance_failed", 4: "regression", 5: "no_data"}
 RUN_ID_RE = re.compile(r"^Run ID: (\S+)", re.M)
 STEP_RE = re.compile(r"^\[(step-\d+)\] launching", re.M)
 LOG_CHUNK = 256 * 1024

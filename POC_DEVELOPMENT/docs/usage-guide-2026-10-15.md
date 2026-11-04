@@ -267,6 +267,45 @@ After the summary, each step|label is compared with the baseline. A p95 increase
 
 Copy `ramp-profiles/rest-boomi-gateway.example.yaml`, fill in the placeholders, put credentials in `.env`, and start with the low settings in the file. The host must be reachable from inside the JMeter container (a public or VPN hostname, or `host.docker.internal`; not `localhost`).
 
+#### Load testing a database (JDBC)
+
+The same profiles can drive SQL queries instead of HTTP requests. Set `target.protocol: jdbc` and write each entry in `requests:` as a query. PostgreSQL is supported today. Everything else works the same: phases, `tps`/`rps` pacing, think time, stop rules, baselines, the Grafana dashboard and the console. Each query's `name` becomes its label in the results, and one iteration runs every query once, so `tps: 20` with three queries is 60 queries/sec.
+
+```yaml
+test_plan: rest/ramp.jmx
+step_duration_sec: 30
+warmup_sec: 5
+target:
+  protocol: jdbc
+  driver: postgresql
+  host: postgres-target        # a compose service name, or host.docker.internal for the Mac itself
+  port: 5432
+  database: loadtest
+requests:
+- name: Customer by id
+  sql: SELECT id, name, email, city FROM customers WHERE id = ?
+  params:
+  - { value: "${__Random(1,100000)}", type: INTEGER }   # a different row each time
+steps:
+- { instances: 1, threads: 10, tps: 100 }
+```
+
+- **Credentials** come from `BOOMI_TEST_DB_USER` and `BOOMI_TEST_DB_PASSWORD` in `.env`, never from the profile. If they aren't set, the bundled sample database's login (`loadtest`/`loadtest`) is used.
+- **Parameters** replace the `?` placeholders in order. The number of `?` must match the number of `params`. Types are `INTEGER`, `BIGINT`, `SMALLINT`, `VARCHAR`, `DECIMAL`, `DOUBLE`, `BOOLEAN`, `TIMESTAMP`. A value can be a JMeter function such as `${__Random(1,100)}` so queries don't all hit the same row, which would only measure the database's cache.
+- **Writes are off by default.** A query with `query_type: update` (INSERT, UPDATE, DELETE) is refused unless the target says `allow_writes: true`. Point write tests at a scratch table or a disposable database. `ramp-profiles/jdbc-postgres-writes-sample.yaml` shows one.
+- **Connections.** Each thread keeps its own connection, so threads don't wait on a shared pool and the numbers reflect the database. Results are counted, not stored, so the load generator's memory isn't the limit.
+- **Try it:** `docker-compose up -d postgres-target`, then `./ramp.sh ramp-profiles/jdbc-postgres-sample.yaml`. The sample has 100,000 customers and 300,000 orders. It listens on `localhost:5434` if you want to look at it yourself.
+- **Your own database:** set the two variables in `.env`, point `host`/`port`/`database` at it (from inside the JMeter container a service on your Mac is `host.docker.internal`, not `localhost`), and use a read-only login for read tests. Start with low thread counts: this is real load on a real database.
+- **Another database** needs its JDBC driver jar added in `jmeter/Dockerfile` and an entry in `JDBC_DRIVERS` in `ramp.py`. Snowflake and others are not set up yet.
+- **The profile builder page (`ramp-profile-builder.html`) only builds HTTP profiles.** For a database profile, edit the YAML in the console or in a text editor.
+- **The JMeter GUI image** (`jmeter-gui`) needs a rebuild (`docker-compose build jmeter-gui`) to open JDBC plans, because it is built on top of the JMeter image that carries the driver.
+
+#### When a run looks empty or wrong
+
+- **Short steps.** Prometheus is scraped every few seconds, so a step shorter than about 20 seconds (after warmup) can produce an incomplete report. `ramp.py` warns at the start of such a run. Use `duration_sec` of 30 or more for anything you rely on.
+- **Raw-results check.** After the summary, `ramp.py` reads JMeter's own results files and lists the most common failure messages per step. That is how a bad password, a refused connection or a wall of 401s shows up as plain text, even when the Prometheus-based table is empty.
+- **Exit code 5.** If a step recorded no measurable samples, the run ends with exit code 5 and a warning instead of passing quietly. The console shows it as "No usable data".
+
 ---
 
 ## Part 6 — Viewing results in Grafana

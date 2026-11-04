@@ -205,7 +205,7 @@ const rate = (s) => s.tps != null ? `${s.tps} TPS` : s.rps != null ? `${s.rps} r
 const STATUS = {
   running: ["Running", "running"], passed: ["Passed", "passed"], stop_rule: ["Stop rule triggered", "warn"],
   instance_failed: ["Instance failed", "bad"], regression: ["Regression", "bad"], error: ["Error", "bad"],
-  stopped: ["Stopped", "warn"], lost: ["Lost track of run", "warn"],
+  stopped: ["Stopped", "warn"], lost: ["Lost track of run", "warn"], no_data: ["No usable data", "bad"],
 };
 function badge(status) { const [t, c] = STATUS[status] || [status, "idle"]; return `<span class="badge ${c}">${esc(t)}</span>`; }
 
@@ -215,6 +215,7 @@ const OUTCOME = {
   instance_failed: ["err", "At least one JMeter instance exited with an error. Check the Log tab."],
   regression: ["err", "Results are worse than the saved baseline. See the Baseline check tab."],
   error: ["err", "The run failed to start or crashed. The Log tab has the reason."],
+  no_data: ["err", "The run produced no measurable results: a step was too short, the target was unreachable, or every request failed. The failure list below and the Log tab show why."],
   stopped: ["info", "Run stopped. Earlier phases are still visible in Grafana under this run's ID."],
   lost: ["info", "The console lost track of this run (it was restarted while the run was going). The log and Grafana still have whatever it recorded."],
 };
@@ -256,14 +257,17 @@ async function selectProfile(name) {
     $("runBtn").disabled = $("runBaseBtn").disabled = true; return;
   }
   $("pError").classList.add("hidden");
-  const tgt = p.target ? `${p.target.protocol || "http"}://${p.target.host}${p.target.port ? ":" + p.target.port : ""}` : (p.test_plan || "built-in plan");
+  const hostPort = p.target ? `${p.target.host}${p.target.port ? ":" + p.target.port : ""}` : "";
+  const tgt = !p.target ? (p.test_plan || "built-in plan")
+    : p.target.protocol === "jdbc" ? `${p.target.driver || "database"}://${hostPort}/${p.target.database || ""}`
+    : `${p.target.protocol || "http"}://${hostPort}`;
   $("pChips").innerHTML = [
     `<span class="chip">${fmtDur(p.total_sec)} total</span>`,
     `<span class="chip">${plural(p.steps.length, "phase")}</span>`,
     p.peak_tps ? `<span class="chip">peak ${p.peak_tps} TPS</span>` : p.peak_rps ? `<span class="chip">peak ${p.peak_rps} req/s</span>` : "",
     `<span class="chip">up to ${p.peak_threads} threads × ${p.peak_instances}</span>`,
     `<span class="chip">${esc(tgt)}</span>`,
-    p.requests.length ? `<span class="chip">${p.requests.length} request${p.requests.length > 1 ? "s" : ""}/iteration</span>` : "",
+    p.requests.length ? `<span class="chip">${plural(p.requests.length, p.target && p.target.protocol === "jdbc" ? "query" : "request").replace(/quer(y)s$/, "queries")}/iteration</span>` : "",
   ].join("");
   $("pBaseline").textContent = p.baseline ? `baseline “${p.baseline}” ${p.baseline_exists ? "saved" : "not saved yet"}` : "no baseline check";
   phaseBars(p.steps, $("pPhases"), -1, 0);
@@ -372,9 +376,17 @@ function renderRun(run) {
   else { $("tab-results").innerHTML = '<div class="muted small">Results appear when the run finishes. Watch the Log tab, or open Grafana for live charts.</div>'; $("tab-regression").innerHTML = ""; }
 }
 
+function failuresHtml(s) {
+  const bad = (s.failures || []).filter((f) => f.failed > 0);
+  if (!bad.length) return "";
+  return '<div class="msg err" style="margin-top:12px"><b>Failed requests, from JMeter\'s raw results</b>' + bad.map((f) =>
+    `<div style="margin-top:6px">${esc(f.step_id)}: ${f.failed} of ${f.total} failed (${f.total ? (100 * f.failed / f.total).toFixed(1) : "0.0"}%)` +
+    f.top.map((t) => `<div class="small" style="margin-left:14px">${t[2]} × [${esc(t[0])}] ${esc(t[1])}</div>`).join("") + "</div>").join("") + "</div>";
+}
+
 function renderResults(run) {
   const s = run.summary; const el = $("tab-results");
-  if (!s || !s.rows || !s.rows.length) { el.innerHTML = '<div class="muted small">No results were recorded for this run.</div>'; return; }
+  if (!s || !s.rows || !s.rows.length) { el.innerHTML = failuresHtml(s || {}) + '<div class="muted small">No results were recorded for this run.</div>'; return; }
   const plan = Object.fromEntries(run.steps.map((x) => [x.step_id, x]));
   let html = '<div class="table-wrap"><table><thead><tr><th>Phase</th><th>Endpoint</th><th>Samples</th><th>Avg ms</th><th>Median</th><th>p90</th><th>p95</th><th>p99</th><th>Errors</th><th>Throughput</th></tr></thead><tbody>';
   let last = null;
@@ -386,6 +398,7 @@ function renderResults(run) {
     html += `<tr><td>${esc(r.step_id)}</td><td>${esc(r.label)}${r.saturated ? ' <span class="badge warn" title="Load generator CPU looked saturated">generator busy</span>' : ""}</td><td>${r.samples}</td><td>${Math.round(r.avg_ms)}</td><td>${Math.round(r.median_ms)}</td><td>${Math.round(r.p90_ms)}</td><td>${Math.round(r.p95_ms)}</td><td>${Math.round(r.p99_ms)}</td><td>${Number(r.error_pct).toFixed(1)}%</td><td>${Number(r.throughput).toFixed(2)}/s</td></tr>`;
   });
   html += "</tbody></table></div>";
+  html += failuresHtml(s);
   if (s.slow_request_count) html += `<div class="muted small" style="margin-top:8px">${s.slow_request_count} slow requests were recorded (slowest ${s.slow_requests.length} are in this run's summary file).</div>`;
   el.innerHTML = html;
 }
