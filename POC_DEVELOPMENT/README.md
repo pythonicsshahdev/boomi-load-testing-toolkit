@@ -173,7 +173,7 @@ throughput will include a 15-second sleep in every iteration).
 
 **If you change `grafana/dashboards/*.json` or anything under
 `grafana/provisioning/`** after the stack has been brought up once,
-rebuilding the `boomi-grafana:dev` image and recreating the container is
+rebuilding the `boomi-loadtest-grafana` image and recreating the container is
 **not enough** — `grafana-data` is a named volume that persists Grafana's
 own database across container recreation, and Grafana already imported
 the old dashboard into that database on first boot. Rebuilding the image

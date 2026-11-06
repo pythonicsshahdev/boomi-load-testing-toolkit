@@ -50,17 +50,18 @@ You need Docker with the `docker-compose` command, and Python 3.9 or newer for t
 
 ```bash
 cd POC_DEVELOPMENT
-./setup.sh                                 # add --no-smoke to skip the smoke test
+./setup.sh                                 # --no-smoke skips the smoke test, --build forces a local image build
 ```
 
-It checks prerequisites, creates `.env`, builds the images, starts Prometheus, Grafana and the sample targets, creates the `.venv-ramp` virtualenv, and runs the smoke test. It is safe to re-run.
+It checks prerequisites, creates `.env`, pulls the published images (`pythonicshahdev/boomi-loadtest-jmeter`, `-grafana`, `-graphql-target`) or builds them locally if the pull fails, starts Prometheus, Grafana and the sample targets, creates the `.venv-ramp` virtualenv, and runs the smoke test. It is safe to re-run.
 
 ### Option B: manual steps
 
 ```bash
 cd POC_DEVELOPMENT
 cp .env.example .env                       # only needed for real, authenticated targets
-docker-compose build
+docker-compose pull jmeter grafana graphql-target   # or: docker-compose build, to build locally
+docker-compose build jmeter-gui
 docker-compose up -d prometheus grafana rest-target graphql-target
 ./smoke-test.sh                            # confirms metrics reach Prometheus, not just that services respond
 
@@ -75,6 +76,14 @@ pip install -r requirements-ramp.txt
 ```
 
 Open Grafana at http://localhost:3004 (`admin`/`admin`) and pick the printed `run_id`. Or start the web console with `./console.sh` and run it from the browser.
+
+## Claude Code skill
+
+`skills/boomi-load-testing/` is a Claude Code skill that walks through setup, profiles, safe runs and the silent-failure pitfalls. To use it, link or copy it into your skills folder:
+
+```bash
+mkdir -p ~/.claude/skills && ln -s "$PWD/skills/boomi-load-testing" ~/.claude/skills/boomi-load-testing
+```
 
 ## Web console
 

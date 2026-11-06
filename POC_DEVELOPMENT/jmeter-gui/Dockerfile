@@ -1,4 +1,5 @@
-FROM boomi-jmeter:dev
+ARG JMETER_IMAGE=pythonicshahdev/boomi-loadtest-jmeter:latest
+FROM ${JMETER_IMAGE}
 
 ARG JMETER_STUDIO_VERSION=1.0.2
 

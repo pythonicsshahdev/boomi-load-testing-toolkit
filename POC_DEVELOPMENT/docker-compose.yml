@@ -10,7 +10,7 @@ services:
   jmeter:
     build:
       context: ./jmeter
-    image: boomi-jmeter:dev
+    image: pythonicshahdev/boomi-loadtest-jmeter:latest
     networks:
       - perf-test-net
     volumes:
@@ -42,7 +42,7 @@ services:
   jmeter-ramp:
     build:
       context: ./jmeter
-    image: boomi-jmeter:dev
+    image: pythonicshahdev/boomi-loadtest-jmeter:latest
     networks:
       - perf-test-net
     volumes:
@@ -89,7 +89,7 @@ services:
   grafana:
     build:
       context: ./grafana
-    image: boomi-grafana:dev
+    image: pythonicshahdev/boomi-loadtest-grafana:latest
     networks:
       - perf-test-net
     ports:
@@ -128,7 +128,7 @@ services:
   graphql-target:
     build:
       context: ./sample-services/graphql-strawberry
-    image: boomi-graphql-target:dev
+    image: pythonicshahdev/boomi-loadtest-graphql-target:latest
     networks:
       - perf-test-net
     ports:

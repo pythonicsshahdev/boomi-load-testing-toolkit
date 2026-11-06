@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # One-shot setup: checks prerequisites, builds and starts the stack, installs the ramp
 # orchestrator's virtualenv, and runs the smoke test. Safe to re-run.
+# Pulls published images from Docker Hub, falling back to a local build (or use --build).
 # Manual equivalent: see README "Quick start, option B".
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 RUN_SMOKE=1
+FORCE_BUILD=0
 for arg in "$@"; do
   case "$arg" in
     --no-smoke) RUN_SMOKE=0 ;;
-    -h|--help) echo "Usage: ./setup.sh [--no-smoke]"; exit 0 ;;
+    --build) FORCE_BUILD=1 ;;
+    -h|--help) echo "Usage: ./setup.sh [--no-smoke] [--build]   (--build skips Docker Hub and builds images locally)"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -35,8 +38,16 @@ else
   echo "created .env from .env.example (fill in credentials only if you test an authenticated API)"
 fi
 
-step "Building images (first run takes a few minutes)"
-$DC build
+step "Getting images"
+PUBLISHED="jmeter grafana graphql-target"
+if [ "$FORCE_BUILD" = 0 ] && $DC pull $PUBLISHED; then
+  echo "pulled published images from Docker Hub"
+  $DC build jmeter-gui   # authoring container, built locally on top of the pulled jmeter image
+else
+  echo "building images locally (first run takes a few minutes)"
+  $DC build jmeter       # jmeter-gui builds FROM this image, so it goes first
+  $DC build
+fi
 
 step "Starting Prometheus, Grafana and the sample targets"
 $DC up -d prometheus grafana rest-target graphql-target
