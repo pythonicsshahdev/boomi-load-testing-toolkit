@@ -290,11 +290,11 @@ steps:
 - { instances: 1, threads: 10, tps: 100 }
 ```
 
-- **Credentials** come from `BOOMI_TEST_DB_USER` and `BOOMI_TEST_DB_PASSWORD` in `.env`, never from the profile. If they aren't set, the bundled sample database's login (`loadtest`/`loadtest`) is used.
+- **Credentials** come from `.env`, never from the profile. By default the profile reads `BOOMI_TEST_DB_USER` and `BOOMI_TEST_DB_PASSWORD`; if those aren't set, the bundled sample database's login (`loadtest`/`loadtest`) is used. To test several databases, name each profile's own variables with `target.user_env` and `target.password_env` (the variable *names*, for example `SEP_DB_USER`, never the values) and put those variables in `.env`.
 - **Parameters** replace the `?` placeholders in order. The number of `?` must match the number of `params`. Types are `INTEGER`, `BIGINT`, `SMALLINT`, `VARCHAR`, `DECIMAL`, `DOUBLE`, `BOOLEAN`, `TIMESTAMP`. A value can be a JMeter function such as `${__Random(1,100)}` so queries don't all hit the same row, which would only measure the database's cache.
 - **Writes are off by default.** A query with `query_type: update` (INSERT, UPDATE, DELETE) is refused unless the target says `allow_writes: true`. Point write tests at a scratch table or a disposable database. `ramp-profiles/jdbc-postgres-writes-sample.yaml` shows one.
 - **Connections.** Each thread keeps its own connection, so threads don't wait on a shared pool and the numbers reflect the database. Results are counted, not stored, so the load generator's memory isn't the limit.
-- **Try it:** `docker-compose up -d postgres-target`, then `./ramp.sh ramp-profiles/jdbc-postgres-sample.yaml`. The sample has 100,000 customers and 300,000 orders. It listens on `localhost:5434` if you want to look at it yourself.
+- **Try it:** `docker-compose up -d postgres-target`, then `./ramp.sh ramp-profiles/jdbc-postgres-sample.yaml`. The sample has 100,000 customers and 300,000 orders. It listens on `localhost:5439` if you want to look at it yourself.
 - **Your own database:** set the two variables in `.env`, point `host`/`port`/`database` at it (from inside the JMeter container a service on your Mac is `host.docker.internal`, not `localhost`), and use a read-only login for read tests. Start with low thread counts: this is real load on a real database.
 - **Another database** needs its JDBC driver jar added in `jmeter/Dockerfile` and an entry in `JDBC_DRIVERS` in `ramp.py`. Snowflake and others are not set up yet.
 - **The profile builder page (`ramp-profile-builder.html`) only builds HTTP profiles.** For a database profile, edit the YAML in the console or in a text editor.

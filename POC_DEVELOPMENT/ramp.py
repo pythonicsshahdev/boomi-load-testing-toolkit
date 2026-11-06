@@ -372,6 +372,9 @@ JDBC_DRIVERS = {
 }
 JDBC_PARAM_TYPES = ("INTEGER", "BIGINT", "SMALLINT", "VARCHAR", "DECIMAL", "DOUBLE", "BOOLEAN", "TIMESTAMP")
 JDBC_QUERY_TYPES = ("select", "update")
+ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+DEFAULT_DB_USER_ENV = "BOOMI_TEST_DB_USER"
+DEFAULT_DB_PASSWORD_ENV = "BOOMI_TEST_DB_PASSWORD"
 VALID_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 EXTRACT_RE = re.compile(r"^[A-Za-z_]\w*=\S.*$")
 
@@ -454,6 +457,10 @@ def _validate_jdbc(profile):
     if target.get("auth", "none") != "none":
         errors.append("target.auth does not apply to jdbc; the login comes from BOOMI_TEST_DB_USER and "
                       "BOOMI_TEST_DB_PASSWORD in .env, never from the profile")
+    for key in ("user_env", "password_env"):
+        if key in target and (not isinstance(target[key], str) or not ENV_NAME_RE.match(target[key])):
+            errors.append(f"target.{key} must be the NAME of an environment variable in .env "
+                          f"(capital letters, digits, underscores), not the value itself; got {target[key]!r}")
     allow_writes = target.get("allow_writes", False)
     if not isinstance(allow_writes, bool):
         errors.append(f"target.allow_writes must be true or false, got {allow_writes!r}")
@@ -662,8 +669,10 @@ def _add_jdbc_elements(thread_group_tree, profile):
     _sp(ds, "dataSource", "db")
     _sp(ds, "dbUrl", url)
     _sp(ds, "driver", driver["class"])
-    _sp(ds, "username", '${__groovy(System.getenv("BOOMI_TEST_DB_USER"))}')
-    _sp(ds, "password", '${__groovy(System.getenv("BOOMI_TEST_DB_PASSWORD"))}')
+    user_env = target.get("user_env", DEFAULT_DB_USER_ENV)
+    password_env = target.get("password_env", DEFAULT_DB_PASSWORD_ENV)
+    _sp(ds, "username", '${__groovy(System.getenv("%s"))}' % user_env)
+    _sp(ds, "password", '${__groovy(System.getenv("%s"))}' % password_env)
     # 0 = each thread keeps its own connection: no pool contention muddying the measurement.
     _sp(ds, "poolMax", "0")
     _sp(ds, "timeout", "10000")

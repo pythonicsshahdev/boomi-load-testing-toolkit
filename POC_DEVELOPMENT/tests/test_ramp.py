@@ -449,3 +449,23 @@ def test_short_step_warnings():
     warnings = ramp.short_step_warnings(profile)
     assert len(warnings) == 1 and warnings[0].startswith("step-01")
     assert ramp.short_step_warnings({"step_duration_sec": 30, "steps": [{"instances": 1, "threads": 1}]}) == []
+
+
+def test_jdbc_login_variable_names_can_be_set_per_profile():
+    target = {"protocol": "jdbc", "driver": "postgresql", "host": "db", "database": "app",
+              "user_env": "SEP_DB_USER", "password_env": "SEP_DB_PASSWORD"}
+    profile = _jdbc_profile(target=target)
+    assert ramp.validate_profile(profile) == []
+    ds = next(_plan(profile).iter("JDBCDataSource"))
+    props = {e.get("name"): (e.text or "") for e in ds}
+    assert 'getenv("SEP_DB_USER")' in props["username"] and 'getenv("SEP_DB_PASSWORD")' in props["password"]
+
+
+def test_jdbc_login_variable_names_default_and_are_validated():
+    ds = next(_plan(_jdbc_profile()).iter("JDBCDataSource"))
+    props = {e.get("name"): (e.text or "") for e in ds}
+    assert 'getenv("BOOMI_TEST_DB_USER")' in props["username"]
+    for bad in ("hunter2", "lower_case", "WITH SPACE", "", 5, "A;B"):
+        target = {"protocol": "jdbc", "driver": "postgresql", "host": "db", "database": "app", "password_env": bad}
+        errors = ramp.validate_profile(_jdbc_profile(target=target))
+        assert any("password_env" in e for e in errors), bad
