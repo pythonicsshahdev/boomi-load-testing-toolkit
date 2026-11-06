@@ -44,7 +44,18 @@ All ports bind to `127.0.0.1`. SOAP samples point at a public calculator service
 
 ## Quick start
 
-You need Docker with `docker-compose`, and Python 3.9 or newer for the ramp orchestrator.
+You need Docker with the `docker-compose` command, and Python 3.9 or newer for the ramp orchestrator. Pick one of two ways to set up.
+
+### Option A: setup script
+
+```bash
+cd POC_DEVELOPMENT
+./setup.sh                                 # add --no-smoke to skip the smoke test
+```
+
+It checks prerequisites, creates `.env`, builds the images, starts Prometheus, Grafana and the sample targets, creates the `.venv-ramp` virtualenv, and runs the smoke test. It is safe to re-run.
+
+### Option B: manual steps
 
 ```bash
 cd POC_DEVELOPMENT
@@ -55,11 +66,15 @@ docker-compose up -d prometheus grafana rest-target graphql-target
 
 python3 -m venv .venv-ramp && source .venv-ramp/bin/activate
 pip install -r requirements-ramp.txt
+```
 
+### Run your first test (either option)
+
+```bash
 ./ramp.sh ramp-profiles/rest-minimal.yaml  # 20 s run against the bundled REST target
 ```
 
-Open Grafana at http://localhost:3004 and pick the printed `run_id`.
+Open Grafana at http://localhost:3004 (`admin`/`admin`) and pick the printed `run_id`. Or start the web console with `./console.sh` and run it from the browser.
 
 ## Web console
 
@@ -138,7 +153,7 @@ The summary report prints in every case. When requests failed, it also lists the
 
 ## Things worth knowing
 
-- **Percentile resolution.** Percentiles come from Prometheus histogram buckets. The `ramp.jmx` plans use buckets from 1 ms to 10 s, so fast APIs resolve properly. The base `starter.jmx` plans still use coarse 50 ms-and-up buckets, and baselines saved before 2026-10-25 were recorded with them, so re-save those baselines.
+- **Percentile resolution.** Percentiles come from Prometheus histogram buckets. The `ramp.jmx` plans use buckets from 1 ms to 10 s, so fast APIs resolve properly. The base `starter.jmx` and `smoke-test.jmx` plans now use the same buckets. Baselines saved before 2026-10-25 were recorded with coarse 50 ms-and-up buckets, so re-save those baselines.
 - **Throughput cap.** Averages and p99 are trustworthy at any bucket setting. `rps` and `tps` can only throttle, never raise load.
 - **Starter pause.** The `starter.jmx` and `smoke-test.jmx` plans include a 15 second pause so short demos survive a Prometheus scrape. Delete it when cloning a starter for a real test.
 - **Transaction Controller.** Don't wrap samplers in a Transaction Controller with `parent=true`. With `jmeter-prometheus-plugin` 0.7.1 it hides the individual sampler labels from Prometheus.
