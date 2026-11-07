@@ -92,7 +92,17 @@ You don't have to use the command line to run tests. Start the console once, the
 ./console.sh                 # then open http://localhost:8800
 ```
 
-Pick a profile, see what it will do (phases, duration, peak rate), then Validate, Edit, Run, or Run and save as baseline. A live run shows progress, the current phase and the log. When it finishes you get the results table, the baseline comparison in plain words, and a link to that run in Grafana. Past runs are listed under History. It runs the same `ramp.py` underneath, so results are identical to the command line, and `./ramp.sh` keeps working for CI.
+Pick a profile and see the load it will generate as a curve, with the duration, peak rate and target beside it. Before you run, a checklist shows whether Prometheus and Grafana are up and whether the credentials the profile needs are set in `.env` (names only, never values), and **Test one request** sends the profile's first request once, with its login, so a wrong key, path or host shows up before any load. Then Validate, Edit, Run, or Run and save as baseline.
+
+While a run is going you see live throughput, average and slowest-5% latency, errors and threads, with the curve filling in as it progresses. When it finishes you get the results table, the baseline comparison in plain words, a link to that run in Grafana, **Export CSV**, and **Download report**, a single HTML page you can send to someone. Add a note to a run (for example what changed), and use History to filter by profile, status or note, or tick two runs and **Compare two runs** to see p95, errors and throughput side by side.
+
+Other things the console does:
+- **Duplicate** and **Delete** profiles, and a **Form builder** (`/builder.html`) that saves straight into the profile list.
+- **Risk check.** A run that launches many instances, peaks above 100 TPS (or 200 requests per second), or sends load to a host that isn't local or one of the bundled samples asks for confirmation first.
+- **Finished-run notification.** Set `CONSOLE_NOTIFY_WEBHOOK` in `.env` (or the environment) to a Slack or Microsoft Teams incoming-webhook URL, and the console posts one line when a run ends. It is off unless you set it.
+- **Theme.** It follows your browser's light or dark setting. Add `?theme=light` to the address to force light.
+
+It runs the same `ramp.py` underneath, so results are identical to the command line, and `./ramp.sh` keeps working for CI (`./ramp.sh --try-request <profile>` is the command-line version of Test one request).
 
 It listens on `127.0.0.1` only. To use it on a VM, see [Running the console on a VM](docs/usage-guide.md#running-the-console-on-a-vm-ec2-or-similar).
 

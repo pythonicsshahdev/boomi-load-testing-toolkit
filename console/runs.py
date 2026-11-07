@@ -14,12 +14,13 @@ import threading
 import time
 from pathlib import Path
 
-from console import profiles
+from console import extras, profiles
 
 STATUS_BY_EXIT = {0: "passed", 1: "error", 2: "stop_rule", 3: "instance_failed", 4: "regression", 5: "no_data"}
 RUN_ID_RE = re.compile(r"^Run ID: (\S+)", re.M)
 STEP_RE = re.compile(r"^\[(step-\d+)\] launching", re.M)
 LOG_CHUNK = 256 * 1024
+NOTE_MAX = 500
 
 
 class RunError(Exception):
@@ -98,8 +99,21 @@ class RunManager:
             status = "lost"
         else:
             status = STATUS_BY_EXIT.get(exit_code, "error")
-        state.update(status=status, exit_code=exit_code, ended_at=time.time())
+        # The summary file is written when the run ends; the console may only notice much later.
+        ended = summary.stat().st_mtime if summary.exists() else time.time()
+        state.update(status=status, exit_code=exit_code, ended_at=max(ended, state["started_at"]))
         _write_json(self._state_path(state["id"]), state)
+        self._notify_finished(state)
+
+    def _notify_finished(self, state):
+        """Optional: tell a Slack or Teams incoming webhook how the run ended (set CONSOLE_NOTIFY_WEBHOOK)."""
+        url = os.environ.get("CONSOLE_NOTIFY_WEBHOOK")
+        if not url:
+            return
+        took = int(state["ended_at"] - state["started_at"])
+        text = (f"Load test {state['profile']} finished: {state['status'].replace('_', ' ')} "
+                f"after {took // 60}:{took % 60:02d}.")
+        threading.Thread(target=extras.notify, args=(url, text), daemon=True).start()
 
     def _refresh(self, state):
         """If a run marked running has ended, record how it ended. Returns the (updated) state."""
@@ -122,7 +136,35 @@ class RunManager:
         state["ramp_run_id"] = match.group(1) if match else None
         steps = STEP_RE.findall(log)
         state["current_step"] = steps[-1] if steps else None
+        state["note"] = self.get_note(state["id"])
         return state
+
+    def get_note(self, run_id):
+        try:
+            return (self.runs_dir / run_id / "note.txt").read_text()
+        except OSError:
+            return ""
+
+    def set_note(self, run_id, note):
+        if not re.fullmatch(r"run-[0-9-]+", run_id) or not (self.runs_dir / run_id).is_dir():
+            raise RunError("No such run", 404)
+        note = str(note or "").strip()[:NOTE_MAX]
+        path = self.runs_dir / run_id / "note.txt"
+        if note:
+            path.write_text(note)
+        else:
+            path.unlink(missing_ok=True)
+        return note
+
+    def delete_profile(self, name):
+        path = profiles.safe_profile_path(self.profiles_dir, name)
+        if path is None or not path.exists():
+            raise RunError("No such profile", 404)
+        active = self.active()
+        if active and active["profile"] == path.stem:
+            raise RunError("That profile is being run right now. Stop the run first.", 409)
+        path.unlink()
+        return path.stem
 
     def _log_text(self, run_id):
         try:
@@ -156,9 +198,8 @@ class RunManager:
         if not ok:
             raise RunError(message or "Profile is invalid", 400)
         if summary["needs_confirmation"] and not confirmed:
-            raise RunError(
-                f"This profile launches up to {summary['peak_instances']} JMeter instances at once "
-                f"(more than {profiles.LARGE_RUN_INSTANCES}). Confirm to run it.", 428)
+            reasons = summary["confirm_reasons"]
+            raise RunError("Check before running: " + "; ".join(reasons) + ". Run it anyway?", 428)
         with self._lock:
             if self.active():
                 raise RunError("A run is already in progress. Wait for it to finish or stop it.", 409)
@@ -224,7 +265,7 @@ class RunManager:
             raise RunError("That run is not running", 409)
         state["stop_requested"] = True
         _write_json(self._state_path(run_id), {k: v for k, v in state.items()
-                                               if k not in ("summary", "ramp_run_id", "current_step")})
+                                               if k not in ("summary", "ramp_run_id", "current_step", "note")})
         try:
             os.kill(state["pid"], signal.SIGTERM)
         except ProcessLookupError:

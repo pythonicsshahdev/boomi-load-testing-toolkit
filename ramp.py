@@ -1003,6 +1003,90 @@ def preflight_oauth(profile):
     return True, f"OAuth token check passed{lifetime}.{note}"
 
 
+TRY_REQUEST_SCRIPT = r"""
+fetch_token() {
+  ID=$(printenv "$ID_ENV"); SECRET=$(printenv "$SECRET_ENV")
+  [ -n "$ID" ] && [ -n "$SECRET" ] || { echo "MISSING_ENV"; exit 3; }
+  set -- -sS -m 15 -o /tmp/tok.out -w '%{http_code}' -X POST "$TOKEN_URL" -H 'Accept: application/json' --data-urlencode grant_type=client_credentials
+  [ -n "$SCOPE" ] && set -- "$@" --data-urlencode "scope=$SCOPE"
+  [ -n "$AUDIENCE" ] && set -- "$@" --data-urlencode "audience=$AUDIENCE"
+  if [ "$CLIENT_AUTH" = post ]; then set -- "$@" --data-urlencode "client_id=$ID" --data-urlencode "client_secret=$SECRET"; else set -- "$@" -u "$ID:$SECRET"; fi
+  TCODE=$(curl "$@") || { echo "TOKEN_UNREACHABLE"; exit 4; }
+  [ "$TCODE" = 200 ] || { echo "TOKEN_HTTP $TCODE $(head -c 200 /tmp/tok.out)"; exit 5; }
+  TOKEN=$(sed -n 's/.*"access_token" *: *"\([^"]*\)".*/\1/p' /tmp/tok.out)
+  [ -n "$TOKEN" ] || { echo "TOKEN_MISSING"; exit 5; }
+}
+set -- -sS -m 20 -o /tmp/body -D /tmp/hdr -w '%{http_code} %{time_total}' -X "$METHOD"
+case "$AUTH" in
+  basic) set -- "$@" -u "$(printenv BOOMI_TEST_TARGET_BASIC_AUTH_USER):$(printenv BOOMI_TEST_TARGET_BASIC_AUTH_PASS)" ;;
+  api_key) set -- "$@" -H "$KEY_HEADER: $(printenv BOOMI_TEST_TARGET_API_KEY)" ;;
+  bearer) set -- "$@" -H "Authorization: Bearer $(printenv "$TOKEN_ENV")" ;;
+  oauth2_client_credentials) fetch_token; set -- "$@" -H "Authorization: Bearer $TOKEN" ;;
+esac
+if [ -n "$BODY" ]; then set -- "$@" -H 'Content-Type: application/json' --data "$BODY"; fi
+OUT=$(curl "$@" "$URL") || { echo "UNREACHABLE"; exit 6; }
+echo "STATUS $OUT"
+echo "---BODY"
+head -c 1200 /tmp/body
+"""
+
+
+def try_first_request(profile):
+    """Sends the profile's first request once from inside a JMeter container, with the profile's auth, and returns
+    a dict: ok, status, seconds, body (first 1200 chars), message. Lets a wrong key, path or host show up before load."""
+    target = profile.get("target") or {}
+    requests = profile.get("requests") or []
+    if not requests or target.get("protocol") == "jdbc":
+        return {"ok": False, "message": "Test request works for HTTP profiles with a requests list."}
+    req = requests[0]
+    if "${" in req["path"]:
+        return {"ok": False, "message": f"The first request ({req['name']}) uses a value from an earlier response, so it can't be sent on its own."}
+    protocol = target.get("protocol", "http")
+    port = target.get("port")
+    url = f"{protocol}://{target['host']}" + (f":{port}" if port else "") + req["path"]
+    auth = target.get("auth", "none")
+    oauth = target.get("oauth") or {}
+    env = {
+        "URL": url, "METHOD": req.get("method", "GET"), "BODY": req.get("body", ""), "AUTH": auth,
+        "KEY_HEADER": target.get("api_key_header", "x-api-key"),
+        "TOKEN_ENV": target.get("token_env", DEFAULT_BEARER_TOKEN_ENV),
+        "TOKEN_URL": oauth.get("token_url", ""), "SCOPE": oauth.get("scope", ""), "AUDIENCE": oauth.get("audience", ""),
+        "CLIENT_AUTH": oauth.get("client_auth", "basic"),
+        "ID_ENV": oauth.get("client_id_env", DEFAULT_OAUTH_ID_ENV),
+        "SECRET_ENV": oauth.get("client_secret_env", DEFAULT_OAUTH_SECRET_ENV),
+    }
+    cmd = [*compose_command(), "run", "--rm", "-T", "--no-deps"]
+    for key, value in env.items():
+        cmd += ["-e", f"{key}={value}"]
+    cmd += ["--entrypoint", "sh", "jmeter", "-c", TRY_REQUEST_SCRIPT]
+    try:
+        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=90)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "message": "The test request timed out."}
+    out = proc.stdout.strip()
+    first = out.split("\n", 1)[0]
+    if first == "MISSING_ENV":
+        return {"ok": False, "message": "OAuth client id/secret are not set in .env."}
+    if first == "TOKEN_UNREACHABLE":
+        return {"ok": False, "message": f"Could not reach the token endpoint {oauth.get('token_url')} from the container."}
+    if first.startswith("TOKEN_HTTP"):
+        return {"ok": False, "message": f"The token endpoint refused the request: {first[len('TOKEN_HTTP '):]}"}
+    if first == "TOKEN_MISSING":
+        return {"ok": False, "message": "The token endpoint answered without an access_token."}
+    if first == "UNREACHABLE" or not first.startswith("STATUS"):
+        detail = next((l for l in proc.stderr.splitlines() if l.strip().startswith("curl:")), "").strip()
+        return {"ok": False, "message": f"Could not reach {url} from the container{': ' + detail if detail else ''}. "
+                                        f"A host-machine URL must use host.docker.internal, not localhost."}
+    parts = first.split()
+    status = int(parts[1])
+    seconds = float(parts[2]) if len(parts) > 2 else None
+    body = out.split("---BODY", 1)[1].lstrip("\n") if "---BODY" in out else ""
+    return {"ok": 200 <= status < 400, "status": status, "seconds": seconds, "body": body,
+            "url": url, "request": req["name"], "auth": auth,
+            "message": f"{req.get('method', 'GET')} {req['path']} returned HTTP {status}"
+                       + (f" in {int(seconds * 1000)} ms" if seconds is not None else "")}
+
+
 def launch_instance(test_plan, run_id, step_id, idx, threads, duration, rps_per_min=None):
     """Launches one JMeter instance in the background. Returns the Popen handle."""
     container_name = derive_instance_name(run_id, step_id, idx)
@@ -1236,6 +1320,7 @@ def main():
     skip_confirmation = "--yes" in args
     validate_only = "--validate" in args
     save_baseline = "--save-baseline" in args
+    try_request = "--try-request" in args
     summary_json_path = None
     if "--summary-json" in args:
         i = args.index("--summary-json")
@@ -1244,9 +1329,9 @@ def main():
             sys.exit(1)
         summary_json_path = args[i + 1]
         del args[i:i + 2]
-    args = [a for a in args if a not in ("--yes", "--validate", "--save-baseline")]
+    args = [a for a in args if a not in ("--yes", "--validate", "--save-baseline", "--try-request")]
     if len(args) < 1:
-        print("Usage: ramp.py [--yes] [--validate] [--save-baseline] [--summary-json <path>] <profile.yaml>", file=sys.stderr)
+        print("Usage: ramp.py [--yes] [--validate] [--save-baseline] [--try-request] [--summary-json <path>] <profile.yaml>", file=sys.stderr)
         sys.exit(1)
 
     profile = load_profile(args[0])
@@ -1260,6 +1345,11 @@ def main():
     if save_baseline and "regression" not in profile:
         print("--save-baseline needs a 'regression: {baseline: <name>}' block in the profile.", file=sys.stderr)
         sys.exit(1)
+
+    if try_request:
+        result = try_first_request(profile)
+        print(json.dumps(result))
+        sys.exit(0 if result["ok"] else 1)
 
     if validate_only:
         print(f"Profile is valid: {len(profile['steps'])} step(s), test_plan={profile['test_plan']!r}")

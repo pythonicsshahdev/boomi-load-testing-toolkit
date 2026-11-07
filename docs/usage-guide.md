@@ -345,9 +345,14 @@ Then open **http://localhost:8800**. The stack from Part 3 must be up (`docker-c
 - **Edit YAML** opens the profile in a text editor. Saving validates first, never overwrites without asking, and writes into `profiles/`. **+ New profile** starts from a template. Credentials never go in a profile; they stay in `.env`.
 - **Watch a run.** Progress, the current phase and the log update every second or two. **Stop run** ends it early: the JMeter containers are removed and the earlier phases stay visible in Grafana.
 - **Read the outcome.** Results show per-phase, per-endpoint samples, average, median, p90/p95/p99, errors and throughput. The Baseline check tab shows the comparison, and a plain-words banner says whether the run passed, hit a stop rule, had an instance fail, or regressed. **View in Grafana** opens the dashboard on that run's `run_id`.
-- **History** lists earlier runs. Click one to reopen its results and log.
+- **Before you run** is a checklist: is Prometheus up, is Grafana up, are the credentials this profile needs set in `.env` (names only, never values). **Test one request** sends the first request once with the profile's login and shows the status and the start of the response, so a wrong key, path or host shows up before any load. It works for HTTP profiles whose first request doesn't use a value from an earlier response.
+- **Live numbers.** During a run you see throughput, average and slowest-5% latency, error rate and active threads, a few seconds behind real time because Prometheus scrapes every 5 seconds.
+- **Notes, export and report.** Add a note to any run. **Export CSV** saves the results table. **Download report** saves one self-contained HTML page with the load curve, results, baseline verdict and note.
+- **History** lists earlier runs with their notes. Filter by profile, status or note text. Click a run to reopen its results and log. Tick two runs and press **Compare two runs** for a side-by-side of p95, errors and throughput, with the change in colour.
+- **Duplicate** copies a profile into the editor under a new name. **Delete** removes it (its baseline and past runs stay). **Form builder** opens `/builder.html`, where **Save to console** puts the profile straight into the list.
+- **Slack or Teams.** Set `CONSOLE_NOTIFY_WEBHOOK` to an incoming-webhook URL and the console posts a line when a run finishes.
 
-Only one run can be active at a time. A profile that launches more than 4 simultaneous JMeter instances asks for confirmation first, the same gate `ramp.sh` has.
+Only one run can be active at a time. A run asks for confirmation first when it launches more than 4 simultaneous JMeter instances (the same gate `ramp.sh` has), peaks above 100 TPS or 200 requests per second, or targets a host that is not local or a bundled sample.
 
 A profile can be opened directly with a link such as `http://localhost:8800/#profile=rest-boomi-phased-tps-20min`.
 

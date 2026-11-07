@@ -164,6 +164,7 @@
 <div class="actions">
   <button type="button" class="primary" id="copyBtn" onclick="copyYaml()">Copy YAML</button>
   <button type="button" id="downloadBtn" onclick="downloadYaml()">Download .yaml</button>
+  <button type="button" id="saveConsoleBtn" onclick="saveToConsole()" hidden title="Save this profile straight into the console's profiles list">Save to console</button>
   <span class="status" id="status">Updates live as you type.</span>
 </div>
 <pre id="output"></pre>
@@ -370,6 +371,7 @@ function render() {
   document.getElementById('output').textContent = toYaml(p);
   document.getElementById('copyBtn').disabled = errors.length > 0;
   document.getElementById('downloadBtn').disabled = errors.length > 0;
+  document.getElementById('saveConsoleBtn').disabled = errors.length > 0;
   document.getElementById('status').textContent = errors.length ? 'Copy/download disabled until the problems above are fixed.' : 'Updates live as you type.';
 }
 
@@ -391,6 +393,24 @@ async function copyYaml() {
     getSelection().addRange(range);
     setStatus('Clipboard blocked by the browser -- YAML is selected, press Cmd/Ctrl+C.');
   }
+}
+
+// Only offered when this page is served by the console (http), where it can save into the profiles list.
+if (location.protocol.startsWith('http') && location.pathname === '/builder.html') document.getElementById('saveConsoleBtn').hidden = false;
+
+async function saveToConsole(overwrite = false) {
+  const name = overwrite === true ? window.lastSaveName : (prompt('Save as (letters, digits, dot, dash, underscore):', 'my-profile') || '').trim();
+  if (!name) return;
+  window.lastSaveName = name;
+  try {
+    const res = await fetch('/api/profiles/' + encodeURIComponent(name), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yaml: document.getElementById('output').textContent, overwrite: overwrite === true }) });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && confirm(`A profile called "${name}" already exists. Replace it?`)) return saveToConsole(true);
+    if (!res.ok) return setStatus(data.error || 'Could not save the profile.');
+    setStatus(`Saved ${name}.yaml. Open the console and it is in the profiles list.`);
+  } catch (e) { setStatus('Could not reach the console: ' + e.message); }
 }
 
 function downloadYaml() {

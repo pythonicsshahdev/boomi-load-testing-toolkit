@@ -562,3 +562,28 @@ def test_preflight_oauth_messages(monkeypatch, stdout, stderr, rc, ok, fragment)
     monkeypatch.setattr(ramp.subprocess, "run", lambda *a, **k: _completed(stdout, stderr, rc))
     result_ok, message = ramp.preflight_oauth(_oauth_profile(refresh_skew_sec=30))
     assert result_ok is ok and fragment in message
+
+
+# --- try one request -----------------------------------------------------------------------------
+
+@pytest.mark.parametrize("stdout,stderr,ok,fragment", [
+    ('STATUS 200 0.012\n---BODY\n[{"id": 1}]', "", True, "returned HTTP 200 in 12 ms"),
+    ('STATUS 401 0.004\n---BODY\n{"error":"no"}', "", False, "returned HTTP 401"),
+    ("UNREACHABLE", "curl: (7) Failed to connect", False, "host.docker.internal"),
+    ("MISSING_ENV", "", False, "client id/secret are not set"),
+    ("TOKEN_HTTP 401 {\"error\":\"invalid_client\"}", "", False, "token endpoint refused"),
+])
+def test_try_first_request_messages(monkeypatch, stdout, stderr, ok, fragment):
+    monkeypatch.setattr(ramp.subprocess, "run", lambda *a, **k: _completed(stdout, stderr, 0))
+    result = ramp.try_first_request(_endpoint_profile())
+    assert result["ok"] is ok and fragment in result["message"]
+    if ok:
+        assert result["status"] == 200 and result["body"].startswith("[")
+
+
+def test_try_first_request_declines_chained_and_database_profiles():
+    profile = _endpoint_profile()
+    profile["requests"] = [{"name": "Get", "method": "GET", "path": "/customers/${id}"}]
+    assert "earlier response" in ramp.try_first_request(profile)["message"]
+    profile["target"]["protocol"] = "jdbc"
+    assert "HTTP profiles" in ramp.try_first_request(profile)["message"]

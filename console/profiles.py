@@ -11,12 +11,33 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
 LARGE_RUN_INSTANCES = 4
 
 
+# Hosts that are this machine or the toolkit's own sample targets. Anything else is a real system.
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal", "rest-target", "graphql-target", "oauth-target", "postgres-target"}
+HIGH_TPS = 100
+HIGH_RPS = 200
+
+
 def safe_profile_path(profiles_dir, name):
     """Path for a profile name, or None if the name could escape the profiles folder."""
     stem = name[:-5] if name.endswith(".yaml") else name
     if not NAME_RE.match(stem) or stem.endswith("."):
         return None
     return Path(profiles_dir) / f"{stem}.yaml"
+
+
+def confirm_reasons(peak_instances, peak_tps, peak_rps, target):
+    """Plain-language reasons a run should be confirmed before it starts. Empty when it is safe to just run."""
+    reasons = []
+    if peak_instances and peak_instances > LARGE_RUN_INSTANCES:
+        reasons.append(f"it launches up to {peak_instances} JMeter instances at once (more than {LARGE_RUN_INSTANCES})")
+    if peak_tps and peak_tps > HIGH_TPS:
+        reasons.append(f"its peak rate is {peak_tps:g} TPS")
+    elif peak_rps and peak_rps > HIGH_RPS:
+        reasons.append(f"its peak rate is {peak_rps:g} requests per second")
+    host = (target or {}).get("host")
+    if host and host not in LOCAL_HOSTS:
+        reasons.append(f"it sends load to {host}, which is not a local or bundled sample target. Make sure whoever runs it has agreed")
+    return reasons
 
 
 def summarize(profile, baselines_dir=None):
@@ -46,6 +67,10 @@ def summarize(profile, baselines_dir=None):
     baseline = regression.get("baseline")
     baseline_exists = bool(baseline and baselines_dir and (Path(baselines_dir) / f"{baseline}.json").exists())
     instances = [s["instances"] for s in steps if isinstance(s["instances"], int)]
+    peak_instances = max(instances) if instances else 0
+    peak_tps = max((s["tps"] for s in steps if isinstance(s["tps"], (int, float))), default=None)
+    peak_rps = max((s["rps"] for s in steps if isinstance(s["rps"], (int, float))), default=None)
+    reasons = confirm_reasons(peak_instances, peak_tps, peak_rps, target)
     return {
         "steps": steps,
         "total_sec": total,
@@ -60,7 +85,8 @@ def summarize(profile, baselines_dir=None):
                      for r in profile.get("requests", []) if isinstance(r, dict)],
         "baseline": baseline,
         "baseline_exists": baseline_exists,
-        "needs_confirmation": bool(instances) and max(instances) > LARGE_RUN_INSTANCES,
+        "needs_confirmation": bool(reasons),
+        "confirm_reasons": reasons,
     }
 
 

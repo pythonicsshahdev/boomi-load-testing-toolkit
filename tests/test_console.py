@@ -327,3 +327,129 @@ def test_http_run_lifecycle_and_profile_save(env):
         assert not (env.profiles_dir / "bad.yaml").exists()
     finally:
         httpd.shutdown()
+
+
+# --- risk warnings, notes, delete, checklist, live numbers -------------------------------------
+
+from console import extras  # noqa: E402
+
+
+def test_confirm_reasons_cover_instances_rate_and_foreign_hosts():
+    ok = profiles.confirm_reasons(1, 40, None, {"host": "rest-target"})
+    assert ok == []
+    assert profiles.confirm_reasons(6, None, None, {"host": "localhost"})[0].startswith("it launches up to 6")
+    assert "peak rate is 150 TPS" in profiles.confirm_reasons(1, 150, None, {"host": "localhost"})[0]
+    assert "250 requests per second" in profiles.confirm_reasons(1, None, 250, {"host": "localhost"})[0]
+    foreign = profiles.confirm_reasons(1, 5, None, {"host": "api.example.com"})
+    assert foreign and "api.example.com" in foreign[0] and "not a local or bundled" in foreign[0]
+
+
+def test_run_against_a_foreign_host_asks_for_confirmation(env):
+    (env.profiles_dir / "remote.yaml").write_text(VALID_YAML.replace("host.docker.internal", "api.example.com"))
+    with pytest.raises(RunError) as e:
+        env.start("remote")
+    assert e.value.status == 428 and "api.example.com" in str(e.value)
+    assert wait_done(env, env.start("remote", confirmed=True)["id"])["status"] == "passed"
+
+
+def test_run_notes_are_saved_trimmed_and_cleared(env):
+    run = wait_done(env, env.start("small")["id"])
+    assert env.get(run["id"])["note"] == ""
+    assert env.set_note(run["id"], "  after the cache fix  ") == "after the cache fix"
+    assert env.get(run["id"])["note"] == "after the cache fix"
+    assert any(r["note"] == "after the cache fix" for r in env.list())
+    assert len(env.set_note(run["id"], "x" * 900)) == 500
+    assert env.set_note(run["id"], "") == "" and env.get(run["id"])["note"] == ""
+    with pytest.raises(RunError):
+        env.set_note("run-0-missing", "x")
+
+
+def test_delete_profile_removes_the_file_and_refuses_while_running(env):
+    assert env.delete_profile("small") == "small" and not (env.profiles_dir / "small.yaml").exists()
+    with pytest.raises(RunError) as e:
+        env.delete_profile("small")
+    assert e.value.status == 404
+    with pytest.raises(RunError):
+        env.delete_profile("../etc/passwd")
+    env.mode["value"] = "hang"
+    (env.profiles_dir / "busy.yaml").write_text(VALID_YAML)
+    run = env.start("busy")
+    with pytest.raises(RunError) as e:
+        env.delete_profile("busy")
+    assert e.value.status == 409
+    env.stop(run["id"])
+    wait_done(env, run["id"])
+
+
+def test_finished_run_notifies_webhook_only_when_configured(env, monkeypatch):
+    sent = []
+    monkeypatch.setattr(extras, "notify", lambda url, text: sent.append((url, text)))
+    wait_done(env, env.start("small")["id"])
+    time.sleep(0.2)
+    assert sent == []
+    monkeypatch.setenv("CONSOLE_NOTIFY_WEBHOOK", "https://hooks.example.com/x")
+    wait_done(env, env.start("small")["id"])
+    time.sleep(0.5)
+    assert len(sent) == 1 and sent[0][0] == "https://hooks.example.com/x" and "small finished: passed" in sent[0][1]
+
+
+def test_required_env_names_follow_the_auth_type():
+    assert extras.required_env({"auth": "none"}) == []
+    assert [n for n, _ in extras.required_env({"auth": "api_key"})] == ["BOOMI_TEST_TARGET_API_KEY"]
+    assert [n for n, _ in extras.required_env({"auth": "oauth2_client_credentials", "oauth": {"client_id_env": "MY_ID"}})] == ["MY_ID", "BOOMI_TEST_OAUTH_CLIENT_SECRET"]
+    assert [n for n, _ in extras.required_env({"protocol": "jdbc"})] == ["BOOMI_TEST_DB_USER", "BOOMI_TEST_DB_PASSWORD"]
+
+
+def test_precheck_reports_missing_credentials_by_name_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(extras, "_http_ok", lambda url: True)
+    monkeypatch.delenv("BOOMI_TEST_TARGET_API_KEY", raising=False)
+    profile = tmp_path / "p.yaml"
+    profile.write_text(VALID_YAML.replace("auth: none", "auth: api_key"))
+    env_file = tmp_path / ".env"
+    env_file.write_text("BOOMI_TEST_TARGET_API_KEY=\n")
+    items = {i["id"]: i for i in extras.precheck(profile, env_file)}
+    assert items["credentials"]["status"] == "warn" and "BOOMI_TEST_TARGET_API_KEY" in items["credentials"]["detail"]
+    env_file.write_text("BOOMI_TEST_TARGET_API_KEY=super-secret-value\n")
+    items = {i["id"]: i for i in extras.precheck(profile, env_file)}
+    assert items["credentials"]["status"] == "ok" and "super-secret-value" not in json.dumps(items)
+
+
+def test_live_metrics_validates_the_run_id_and_maps_queries(monkeypatch):
+    assert extras.live_metrics(None) is None
+    assert extras.live_metrics('x"} or vector(1) #') is None
+    seen = []
+    monkeypatch.setattr(extras, "_prom", lambda q: (seen.append(q), 7.0)[1])
+    result = extras.live_metrics("20261107-125037")
+    assert set(result) == {"throughput", "error_pct", "p95_ms", "avg_ms", "active_threads"}
+    assert all(v == 7.0 for v in result.values())
+    assert any('run_id="20261107-125037"' in q for q in seen)
+
+
+def test_http_notes_delete_precheck_and_live(env, monkeypatch):
+    monkeypatch.setattr(extras, "_http_ok", lambda url: False)
+    httpd, c = serve(env)
+    try:
+        run = wait_done(env, env.start("small")["id"])
+        assert c.request("PUT", f"/api/runs/{run['id']}/note", {"note": "baseline candidate"})[1] == {"note": "baseline candidate"}
+        assert c.request("GET", f"/api/runs/{run['id']}")[1]["note"] == "baseline candidate"
+        assert c.request("GET", f"/api/runs/{run['id']}/live")[0] == 200
+        status, check, _ = c.request("GET", "/api/profiles/small/precheck")
+        assert status == 200 and {i["id"] for i in check["items"]} >= {"prometheus", "grafana"}
+        assert c.request("GET", "/api/profiles/missing/precheck")[0] == 404
+        assert c.request("DELETE", "/api/profiles/small")[1] == {"deleted": "small"}
+        assert c.request("DELETE", "/api/profiles/small")[0] == 404
+        status, page, res = c.request("GET", "/builder.html")
+        assert status == 200 and b"<html" in page
+    finally:
+        httpd.shutdown()
+
+
+def test_run_end_time_comes_from_the_summary_file_not_from_when_the_console_noticed(env):
+    run = env.start("small")
+    deadline = time.time() + 20
+    while not (env.runs_dir / run["id"] / "summary.json").exists() and time.time() < deadline:
+        time.sleep(0.05)
+    time.sleep(1.5)  # nobody polls for a while
+    state = wait_done(env, run["id"])
+    written = (env.runs_dir / run["id"] / "summary.json").stat().st_mtime
+    assert abs(state["ended_at"] - written) < 0.05 and state["ended_at"] < time.time() - 1.0

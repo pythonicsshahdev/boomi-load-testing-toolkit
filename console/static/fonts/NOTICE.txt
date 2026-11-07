@@ -1,0 +1,6 @@
+Fonts bundled so the console looks the same offline.
+
+Bricolage Grotesque - Copyright 2022 The Bricolage Grotesque Project Authors (https://github.com/ateliertriay/bricolage)
+Figtree             - Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree)
+
+Both are licensed under the SIL Open Font License, Version 1.1: https://openfontlicense.org

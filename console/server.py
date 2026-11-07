@@ -5,6 +5,7 @@ import ipaddress
 import json
 import mimetypes
 import os
+import subprocess
 import sys
 import time
 from http import HTTPStatus
@@ -13,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from console import profiles
+from console import extras, profiles
 from console.runs import RunError, RunManager
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -148,6 +149,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         self._dispatch("PUT")
 
+    def do_DELETE(self):
+        self._dispatch("DELETE")
+
     def _dispatch(self, method):
         try:
             if not host_allowed(self.headers.get("Host"), self.app.bind_host, self.app.extra_hosts):
@@ -156,6 +160,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(HTTPStatus.FORBIDDEN, "Cross-origin request refused")
             url = urlparse(self.path)
             path = url.path
+            if path == "/builder.html" and method == "GET":
+                return self._send(200, (REPO_ROOT / "ramp-profile-builder.html").read_bytes(), "text/html; charset=utf-8")
             if not path.startswith("/api/"):
                 return self._static(path) if method == "GET" else self._error(HTTPStatus.NOT_FOUND, "Not found")
             if path == "/api/config" and method == "GET":
@@ -199,6 +205,13 @@ class Handler(BaseHTTPRequestHandler):
         parts = path.strip("/").split("/")[1:]  # drop "api"
         if parts == ["profiles"] and method == "GET":
             return self._send(200, profiles.list_profiles(mgr.profiles_dir, mgr.baselines_dir))
+        if len(parts) == 3 and parts[0] == "profiles" and parts[2] == "precheck" and method == "GET":
+            path = profiles.safe_profile_path(mgr.profiles_dir, parts[1])
+            if path is None or not path.exists():
+                raise RunError("No such profile", 404)
+            return self._send(200, {"items": extras.precheck(path, REPO_ROOT / ".env")})
+        if len(parts) == 3 and parts[0] == "profiles" and parts[2] == "try" and method == "POST":
+            return self._try_request(parts[1])
         if len(parts) == 2 and parts[0] == "profiles":
             return self._profile(method, parts[1])
         if parts == ["validate"] and method == "POST":
@@ -235,7 +248,22 @@ class Handler(BaseHTTPRequestHandler):
             mgr.profiles_dir.mkdir(exist_ok=True)
             path.write_text(text if text.endswith("\n") else text + "\n")
             return self._send(200, {"name": path.stem, **profiles.load_summary(path, mgr.baselines_dir)})
+        if method == "DELETE":
+            return self._send(200, {"deleted": mgr.delete_profile(name)})
         self._error(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
+
+    def _try_request(self, name):
+        mgr = self.app.manager
+        path = profiles.safe_profile_path(mgr.profiles_dir, name)
+        if path is None or not path.exists():
+            raise RunError("No such profile", 404)
+        try:
+            proc = subprocess.run([sys.executable, str(REPO_ROOT / "ramp.py"), "--try-request", str(path)],
+                                  capture_output=True, text=True, timeout=120, cwd=REPO_ROOT)
+            result = json.loads(proc.stdout.strip().splitlines()[-1])
+        except (subprocess.TimeoutExpired, ValueError, IndexError):
+            result = {"ok": False, "message": "The test request did not finish. Is Docker running?"}
+        self._send(200, result)
 
     def _run(self, method, run_id, rest, query):
         mgr = self.app.manager
@@ -249,6 +277,13 @@ class Handler(BaseHTTPRequestHandler):
             if chunk is None:
                 raise RunError("No such run", 404)
             return self._send(200, chunk)
+        if method == "GET" and rest == ["live"]:
+            state = mgr.get(run_id)
+            if state is None:
+                raise RunError("No such run", 404)
+            return self._send(200, extras.live_metrics(state.get("ramp_run_id")) or {})
+        if method == "PUT" and rest == ["note"]:
+            return self._send(200, {"note": mgr.set_note(run_id, self._json_body().get("note", ""))})
         if method == "POST" and rest == ["stop"]:
             return self._send(200, mgr.stop(run_id))
         self._error(HTTPStatus.NOT_FOUND, "Not found")

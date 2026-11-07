@@ -5,152 +5,319 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Load Test Console</title>
 <style>
+/* Fonts are served from this console (static/fonts), so it looks the same offline.
+   Bricolage Grotesque and Figtree are licensed under the SIL Open Font License 1.1. */
+@font-face { font-family: "Bricolage Grotesque"; src: url(fonts/bricolage-grotesque.woff2) format("woff2"); font-weight: 500 800; font-display: swap; }
+@font-face { font-family: "Figtree"; src: url(fonts/figtree.woff2) format("woff2"); font-weight: 400 700; font-display: swap; }
+
 :root {
-  --bg: #f4f6f9; --panel: #ffffff; --ink: #1b2430; --muted: #5d6b7c; --line: #dde3ea;
-  --accent: #0b64c0; --accent-ink: #ffffff; --accent-soft: #e6f0fb;
-  --ok: #17803d; --ok-soft: #e4f4ea; --warn: #9a6700; --warn-soft: #fff4d6;
-  --bad: #b42318; --bad-soft: #fde8e6; --run: #0b64c0; --run-soft: #e6f0fb;
+  --paper: #edf1f6; --surface: #ffffff; --ink: #13233a; --muted: #566880; --line: #d5dde8; --line-soft: #e5ebf2;
+  --blue: #0b5fd8; --blue-ink: #ffffff; --blue-soft: #e4eefc;
+  --teal: #0f8f6e; --teal-soft: #dcf3ec;
+  --rose: #c7303f; --rose-soft: #fbe6e8;
+  --amber: #8f6210; --amber-soft: #fff1d1;
+  --signal: #f26a1b;
+  --scope: #0f1e37; --scope-ink: #dce6f5; --scope-muted: #8ea2c0; --scope-grid: rgba(255,255,255,.09);
+  --scope-plan: #3d6fc4; --scope-run: #5ea0ff; --scope-ok: #3ccfa0; --scope-warn: #f0b64a; --scope-bad: #ff7d8a;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #11161d; --panel: #1a212b; --ink: #e6ebf2; --muted: #9aa7b8; --line: #2b3542;
-    --accent: #4f9cf0; --accent-ink: #0b1522; --accent-soft: #1b2a3d;
-    --ok: #4cc27a; --ok-soft: #173325; --warn: #e3b341; --warn-soft: #33290f;
-    --bad: #f47067; --bad-soft: #3a1c1a; --run: #4f9cf0; --run-soft: #1b2a3d;
+    --paper: #070e18; --surface: #0f1a2a; --ink: #e5ecf6; --muted: #9aabc2; --line: #26354a; --line-soft: #1c2a3d;
+    --blue: #5ea0ff; --blue-ink: #08142a; --blue-soft: #172a47;
+    --teal: #3ccfa0; --teal-soft: #12332b;
+    --rose: #ff7d8a; --rose-soft: #3a1b21;
+    --amber: #f0b64a; --amber-soft: #352a10;
+    --scope: #0e2038;
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 24px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 5; }
-header h1 { font-size: 17px; margin: 0; font-weight: 650; }
-header .spacer { flex: 1; }
-a { color: var(--accent); }
-.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; padding: 20px 24px; max-width: 1500px; margin: 0 auto; }
-@media (max-width: 900px) { .layout { grid-template-columns: 1fr; padding: 16px; } header { padding: 12px 16px; } }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
-.card + .card { margin-top: 16px; }
-h2 { font-size: 15px; margin: 0 0 12px; font-weight: 650; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 var(--body); font-variant-numeric: tabular-nums; }
+a { color: var(--blue); text-underline-offset: 3px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
-input[type=search], input[type=text], input[type=password], textarea { width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 8px 10px; font: inherit; }
-textarea { font-family: var(--mono); font-size: 13px; min-height: 300px; resize: vertical; line-height: 1.4; }
-button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 8px 14px; cursor: pointer; }
-button:hover:not(:disabled) { border-color: var(--accent); }
-button:disabled { opacity: .5; cursor: not-allowed; }
-button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-button.danger { color: var(--bad); border-color: var(--bad); }
-.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.profile-list { list-style: none; margin: 12px 0 0; padding: 0; max-height: 62vh; overflow: auto; }
-.profile-list li { padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
-.profile-list li:hover { background: var(--bg); }
-.profile-list li.sel { background: var(--accent-soft); border-color: var(--accent); }
-.profile-list .name { font-weight: 600; word-break: break-all; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
-.chip { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; font-size: 13px; }
-.badge { display: inline-block; border-radius: 999px; padding: 2px 11px; font-size: 13px; font-weight: 600; }
-.badge.running { background: var(--run-soft); color: var(--run); }
-.badge.passed { background: var(--ok-soft); color: var(--ok); }
-.badge.warn { background: var(--warn-soft); color: var(--warn); }
-.badge.bad { background: var(--bad-soft); color: var(--bad); }
-.badge.idle { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
-.phases { display: flex; gap: 4px; align-items: flex-end; height: 92px; margin: 6px 0 4px; }
-.phase { flex: 1 1 0; min-width: 0; max-width: 170px; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; }
-.phase .bar { background: var(--accent); opacity: .55; border-radius: 4px 4px 0 0; min-height: 4px; }
-.phase.done .bar { opacity: 1; background: var(--ok); }
-.phase.cur .bar { opacity: 1; background: var(--run); outline: 2px solid var(--run); outline-offset: 1px; }
-.phase .lbl { font-size: 11px; text-align: center; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.progress { height: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
-.progress > div { height: 100%; background: var(--run); width: 0; transition: width .6s linear; }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 14px 0 12px; }
-.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 7px 12px; color: var(--muted); }
-.tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
-pre.log { background: #0f141a; color: #d6dde6; border-radius: 8px; padding: 12px; font: 12.5px/1.45 var(--mono); max-height: 380px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; }
-table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
-th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
-th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
-.table-wrap { overflow-x: auto; }
-tr.stephead td { background: var(--bg); font-weight: 600; text-align: left; }
-.msg { border-radius: 8px; padding: 9px 12px; margin: 10px 0; font-size: 14px; white-space: pre-wrap; }
-.msg.ok { background: var(--ok-soft); color: var(--ok); }
-.msg.err { background: var(--bad-soft); color: var(--bad); }
-.msg.info { background: var(--accent-soft); color: var(--ink); }
-.history { width: 100%; }
-.history tr { cursor: pointer; }
-.history tr:hover td { background: var(--bg); }
 .hidden { display: none !important; }
-dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 440px; padding: 20px; }
-dialog::backdrop { background: rgba(10, 16, 24, .45); }
-#login { max-width: 360px; margin: 14vh auto; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+code { font-family: var(--mono); font-size: .92em; background: var(--line-soft); padding: 1px 5px; border-radius: 4px; }
+
+/* ---------- shell ---------- */
+.shell { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 100vh; }
+.rail { background: var(--surface); border-right: 1px solid var(--line); padding: 26px 20px 20px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 18px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand svg { flex: none; }
+.brand h1 { font: 700 21px/1.1 var(--display); letter-spacing: -.01em; margin: 0; }
+.rail-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.main { padding: 38px 44px 64px; max-width: 1180px; width: 100%; }
+@media (max-width: 960px) {
+  .shell { grid-template-columns: 1fr; }
+  .rail { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 18px 16px; }
+  .profile-list { max-height: 260px; }
+  .main { padding: 24px 16px 48px; }
+}
+
+/* ---------- controls ---------- */
+input[type=search], input[type=text], input[type=password], textarea {
+  width: 100%; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 10px; padding: 9px 12px; font: inherit;
+}
+input::placeholder { color: var(--muted); }
+textarea { font-family: var(--mono); font-size: 13px; min-height: 320px; resize: vertical; line-height: 1.5; background: var(--surface); }
+button { font: 600 14px/1 var(--body); border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 11px 16px; cursor: pointer; transition: border-color .15s, background .15s; }
+button:hover:not(:disabled) { border-color: var(--blue); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--blue); color: var(--blue-ink); border-color: var(--blue); }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+button.danger { color: var(--rose); border-color: var(--rose); background: transparent; }
+button.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+button.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--line); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.spacer { flex: 1; }
+
+/* ---------- status badges ---------- */
+.badge { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 4px 12px 4px 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.running { background: var(--blue-soft); color: var(--blue); }
+.badge.running::before { animation: pulse 1.4s ease-in-out infinite; }
+.badge.passed { background: var(--teal-soft); color: var(--teal); }
+.badge.warn { background: var(--amber-soft); color: var(--amber); }
+.badge.bad { background: var(--rose-soft); color: var(--rose); }
+.badge.idle { background: var(--line-soft); color: var(--muted); }
+@keyframes pulse { 50% { opacity: .25; } }
+
+/* ---------- profile list ---------- */
+.rail-label { font: 600 13px var(--body); color: var(--muted); margin: 0 0 8px; }
+.profile-list { list-style: none; margin: 10px -8px 0; padding: 0; overflow: auto; flex: 1; min-height: 0; }
+.profile-list li { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; padding: 9px 8px; border-radius: 12px; cursor: pointer; border: 1px solid transparent; }
+.profile-list li:hover { background: var(--paper); }
+.profile-list li.sel { background: var(--blue-soft); border-color: color-mix(in srgb, var(--blue) 35%, transparent); }
+.profile-list .name { font-weight: 600; overflow-wrap: anywhere; line-height: 1.25; }
+.profile-list .meta { margin-top: 2px; }
+.profile-list .thumb { display: block; width: 56px; height: 28px; }
+.profile-list .thumb.none { border-bottom: 2px dotted var(--line); height: 20px; }
+.meta { font-size: 12.5px; color: var(--muted); }
+.meta span + span::before { content: ""; display: inline-block; width: 1px; height: .9em; background: var(--line); margin: 0 7px; vertical-align: -1px; }
+
+/* ---------- profile head ---------- */
+.section + .section { margin-top: 44px; }
+.head { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
+.title { font: 700 34px/1.08 var(--display); letter-spacing: -.02em; margin: 0; overflow-wrap: anywhere; }
+.subtitle { margin-top: 6px; }
+h2.sec { font: 700 24px/1.15 var(--display); letter-spacing: -.015em; margin: 0; }
+.lede { color: var(--muted); max-width: 62ch; margin: 6px 0 0; }
+
+/* ---------- the load curve ("scope") ---------- */
+.scope { background: var(--scope); color: var(--scope-ink); border: 1px solid color-mix(in srgb, var(--scope-plan) 22%, transparent); border-radius: 18px; padding: 16px 18px 12px; box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 14px 32px -18px rgba(8, 20, 45, .6); }
+.scope svg { display: block; width: 100%; height: auto; overflow: visible; }
+.scope .note { color: var(--scope-muted); font-size: 13px; margin: 6px 4px 2px; }
+.scope .grid line { stroke: var(--scope-grid); stroke-width: 1; }
+.scope .axis text { fill: var(--scope-muted); font: 500 11px var(--body); }
+.scope .unit { fill: var(--scope-muted); font: 600 11px var(--body); }
+.scope .plan { fill: color-mix(in srgb, var(--scope-plan) 28%, transparent); stroke: var(--scope-plan); stroke-width: 1.5; stroke-linejoin: round; }
+.scope .prog { stroke-width: 2; stroke-linejoin: round; }
+.scope .prog.run { fill: color-mix(in srgb, var(--scope-run) 42%, transparent); stroke: var(--scope-run); }
+.scope .prog.ok { fill: color-mix(in srgb, var(--scope-ok) 40%, transparent); stroke: var(--scope-ok); }
+.scope .prog.warn { fill: color-mix(in srgb, var(--scope-warn) 38%, transparent); stroke: var(--scope-warn); }
+.scope .prog.bad { fill: color-mix(in srgb, var(--scope-bad) 36%, transparent); stroke: var(--scope-bad); }
+.scope .val { fill: var(--scope-ink); font: 600 12px var(--display); text-anchor: middle; }
+.scope .now line { stroke: var(--signal); stroke-width: 2; }
+.scope .now circle { fill: var(--signal); }
+.scope .now .halo { fill: var(--signal); opacity: .35; animation: halo 1.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes halo { from { transform: scale(.6); opacity: .5; } to { transform: scale(2.4); opacity: 0; } }
+.scope.reveal .curve { animation: draw .75s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.scope-empty { height: 120px; display: grid; place-items: center; color: var(--scope-muted); }
+
+.sub { font: 700 15px var(--display); margin: 0 0 8px; letter-spacing: -.005em; }
+.tools { display: flex; flex-wrap: wrap; gap: 16px 32px; justify-content: space-between; align-items: flex-start; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+.checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.checklist li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; font-size: 14px; }
+.checklist .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; background: var(--teal); }
+.checklist .dot.warn { background: var(--amber); }
+.checklist .what { font-weight: 600; }
+.checklist .why { color: var(--muted); }
+.tool-btns { gap: 8px; }
+button.small-btn { padding: 8px 12px; font-size: 13px; }
+button.ghost.danger-text:hover:not(:disabled) { color: var(--rose); border-color: var(--rose); }
+.try { margin-top: 16px; }
+.try pre { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font: 12.5px/1.5 var(--mono); max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; }
+.live { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px 24px; margin: 0 0 16px; }
+.live .tile dt { font-size: 13px; color: var(--muted); }
+.live .tile dd { margin: 2px 0 0; font: 700 26px/1.15 var(--display); letter-spacing: -.01em; }
+.live .tile dd small { font: 500 13px var(--body); color: var(--muted); margin-left: 3px; letter-spacing: 0; }
+.live .tile dd.bad { color: var(--rose); }
+.noterow { margin: 14px 0 0; display: flex; gap: 10px; }
+.noterow input { flex: 1; }
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+.filters select, .filters input { width: auto; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 10px; padding: 8px 12px; font: inherit; }
+.filters input { min-width: 220px; }
+.history th.pick, .history td.pick { width: 34px; padding-right: 0; text-align: center; }
+.history td.noteCell { color: var(--muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.history th:nth-child(n+3), .history td:nth-child(n+3) { text-align: left; }
+.compare { margin-top: 22px; }
+.compare td.better { color: var(--teal); font-weight: 700; }
+.compare td.worse { color: var(--rose); font-weight: 700; }
+.track { height: 4px; border-radius: 999px; background: var(--line); margin-top: 14px; overflow: hidden; }
+.track > div { height: 100%; width: 0; background: var(--blue); transition: width .6s linear; }
+
+/* ---------- facts ---------- */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 18px 28px; margin: 22px 0 4px; padding: 0; }
+.fact dt { font-size: 13px; color: var(--muted); }
+.fact dd { margin: 2px 0 0; font: 600 18px/1.3 var(--display); overflow-wrap: anywhere; }
+.fact.wide { grid-column: span 2; }
+.fact dd.small-val { font: 600 14px/1.45 var(--body); overflow-wrap: anywhere; }
+
+/* ---------- messages ---------- */
+.msg { border-radius: 10px; border-left: 4px solid currentColor; padding: 10px 14px; margin: 14px 0; font-size: 14px; white-space: pre-wrap; }
+.msg.ok { background: var(--teal-soft); color: var(--teal); }
+.msg.err { background: var(--rose-soft); color: var(--rose); }
+.msg.info { background: var(--blue-soft); color: var(--ink); border-left-color: var(--blue); }
+.msg b { font-weight: 700; }
+
+/* ---------- editor ---------- */
+.editor { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+
+/* ---------- tabs and tables ---------- */
+.tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin: 26px 0 14px; }
+.tabs button { border: none; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 8px 0 10px; color: var(--muted); font-weight: 600; margin-bottom: -1px; }
+.tabs button:hover:not(:disabled) { color: var(--ink); border-bottom-color: var(--line); }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--blue); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line-soft); }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--line); background: transparent; }
+td.bad { color: var(--rose); font-weight: 700; }
+td.strong { font-weight: 700; }
+tr.stephead td { background: var(--blue-soft); font: 600 13.5px var(--body); text-align: left; border-bottom: none; padding: 8px 12px; border-radius: 0; }
+.history { width: 100%; }
+.history tbody tr { cursor: pointer; }
+.history tbody tr:hover td { background: color-mix(in srgb, var(--blue-soft) 60%, transparent); }
+.history tbody tr.cur td { background: var(--blue-soft); }
+pre.log { background: #0b1830; color: var(--scope-ink); border-radius: 14px; padding: 16px; font: 12.5px/1.55 var(--mono); max-height: 380px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+
+/* ---------- dialog and sign-in ---------- */
+dialog { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); max-width: 460px; padding: 24px; box-shadow: 0 24px 60px -20px rgba(8, 20, 45, .5); }
+dialog h2 { font: 700 22px var(--display); margin: 0 0 8px; }
+dialog::backdrop { background: rgba(8, 16, 30, .55); }
+#login { max-width: 400px; margin: 14vh auto; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 28px; }
+#login h2 { font: 700 24px var(--display); margin: 14px 0 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .badge.running::before, .scope .now .halo { animation: none; }
+  .scope.reveal .curve { animation: none; }
+  .track > div { transition: none; }
+}
 </style>
 </head>
 <body>
-<header>
-  <h1>Load Test Console</h1>
-  <span id="topStatus" class="badge idle">Idle</span>
-  <span class="spacer"></span>
-  <a id="grafanaTop" class="small hidden" target="_blank" rel="noopener">Open Grafana ↗</a>
-</header>
 
-<div id="login" class="card hidden">
+<div id="login" class="hidden">
+  <div class="brand">
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#0f1e37"/><path d="M6 25h5v-6h5v-8h6v5h6" fill="none" stroke="#5ea0ff" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg>
+    <h1>Load Test Console</h1>
+  </div>
   <h2>Sign in</h2>
   <p class="muted small">This console needs an access token. Ask whoever started it for the value of <code>CONSOLE_TOKEN</code>.</p>
-  <input id="tokenInput" type="password" placeholder="Access token" autocomplete="current-password">
-  <div class="row" style="margin-top:12px"><button class="primary" id="loginBtn">Sign in</button><span id="loginMsg" class="small"></span></div>
+  <input id="tokenInput" type="password" placeholder="Access token" autocomplete="current-password" aria-label="Access token">
+  <div class="row" style="margin-top:14px"><button class="primary" id="loginBtn">Sign in</button><span id="loginMsg" class="small"></span></div>
 </div>
 
-<div id="app" class="layout hidden">
-  <aside>
-    <div class="card">
-      <h2>Profiles</h2>
-      <input id="search" type="search" placeholder="Filter profiles">
-      <ul id="profileList" class="profile-list"></ul>
-      <div class="row" style="margin-top:12px"><button id="newBtn" class="small">+ New profile</button></div>
+<div id="app" class="shell hidden">
+  <aside class="rail">
+    <div class="brand">
+      <svg width="38" height="38" viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#0f1e37"/><path d="M6 25h5v-6h5v-8h6v5h6" fill="none" stroke="#5ea0ff" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <h1>Load Test Console</h1>
     </div>
+    <div class="rail-status">
+      <span id="topStatus" class="badge idle">Idle</span>
+      <a id="grafanaTop" class="small hidden" target="_blank" rel="noopener">Open Grafana</a>
+    </div>
+    <div style="display:flex;flex-direction:column;min-height:0;flex:1">
+      <p class="rail-label">Profiles</p>
+      <input id="search" type="search" placeholder="Filter profiles" aria-label="Filter profiles">
+      <ul id="profileList" class="profile-list"></ul>
+    </div>
+    <button id="newBtn">New profile</button>
   </aside>
 
-  <main>
-    <div class="card" id="profileCard">
-      <div id="noProfile" class="muted">Select a profile on the left to see what it will do and run it.</div>
+  <main class="main">
+    <section class="section" id="profileCard">
+      <div id="noProfile">
+        <h2 class="title">Choose a profile</h2>
+        <p class="lede">Pick one on the left to see the load it will generate, then run it. Each profile is a list of phases, and every phase has its own rate and length.</p>
+      </div>
       <div id="profileBody" class="hidden">
-        <div class="row"><h2 id="pName" style="margin:0"></h2><span id="pBaseline" class="small muted"></span></div>
-        <div id="pChips" class="chips"></div>
-        <div id="pPhases" class="phases"></div>
-        <div class="small muted" id="pPhasesNote"></div>
-        <div id="pError" class="msg err hidden"></div>
-        <div class="row" style="margin-top:14px">
-          <button id="runBtn" class="primary">Run</button>
-          <button id="runBaseBtn" title="Run, and if it is clean, record it as the baseline for this profile">Run and save as baseline</button>
-          <button id="validateBtn">Validate</button>
-          <button id="editBtn">Edit YAML</button>
+        <div class="head">
+          <div>
+            <h2 class="title" id="pName"></h2>
+            <div class="subtitle small muted" id="pBaseline"></div>
+          </div>
+          <div class="row">
+            <button id="editBtn" class="ghost">Edit YAML</button>
+            <button id="validateBtn" class="ghost">Validate</button>
+            <button id="runBaseBtn" title="Run, and if it is clean, record it as the baseline for this profile">Run and save as baseline</button>
+            <button id="runBtn" class="primary">Run</button>
+          </div>
         </div>
+        <div class="scope" id="pScope">
+          <div id="pPhases"></div>
+          <div class="note" id="pPhasesNote"></div>
+        </div>
+        <dl id="pChips" class="facts"></dl>
+        <div class="tools">
+          <section aria-live="polite">
+            <h3 class="sub">Before you run</h3>
+            <ul id="pCheck" class="checklist"></ul>
+          </section>
+          <div class="row tool-btns">
+            <button id="tryBtn" title="Send the first request once, with the profile's login, and show the answer">Test one request</button>
+            <button id="dupBtn" class="ghost">Duplicate</button>
+            <button id="builderBtn" class="ghost" title="Open the form builder in a new tab">Form builder</button>
+            <button id="delBtn" class="ghost danger-text">Delete</button>
+          </div>
+        </div>
+        <div id="pTry" class="try hidden"></div>
+        <div id="pError" class="msg err hidden"></div>
         <div id="pMsg"></div>
-        <div id="editor" class="hidden" style="margin-top:14px">
-          <textarea id="yamlText" spellcheck="false"></textarea>
-          <div class="row" style="margin-top:10px">
-            <input id="saveName" type="text" style="max-width:280px" placeholder="profile-name">
+        <div id="editor" class="editor hidden">
+          <textarea id="yamlText" spellcheck="false" aria-label="Profile YAML"></textarea>
+          <div class="row" style="margin-top:12px">
+            <input id="saveName" type="text" style="max-width:280px" placeholder="profile-name" aria-label="Profile name">
             <button id="saveBtn">Save</button>
-            <span class="small muted">Letters, digits, dot, dash, underscore. Saved into <code>profiles/</code>; credentials never go in a profile, they live in <code>.env</code>.</span>
+            <span class="small muted">Letters, digits, dot, dash, underscore. Saved into <code>profiles/</code>. Credentials never go in a profile, they live in <code>.env</code>.</span>
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div class="card" id="runCard">
-      <div class="row">
-        <h2 style="margin:0">Run</h2><span id="rBadge" class="badge idle">None yet</span>
-        <span class="spacer" style="flex:1"></span>
-        <a id="rGrafana" class="small hidden" target="_blank" rel="noopener">View in Grafana ↗</a>
-        <button id="stopBtn" class="danger hidden">Stop run</button>
+    <section class="section" id="runCard">
+      <div class="head" style="margin-bottom:14px">
+        <div class="row" style="gap:14px">
+          <h2 class="sec">Latest run</h2><span id="rBadge" class="badge idle">None yet</span>
+        </div>
+        <div class="row">
+          <button id="csvBtn" class="ghost small-btn hidden">Export CSV</button>
+          <button id="reportBtn" class="ghost small-btn hidden">Download report</button>
+          <a id="rGrafana" class="small hidden" target="_blank" rel="noopener">View in Grafana</a>
+          <button id="stopBtn" class="danger hidden">Stop run</button>
+        </div>
       </div>
-      <div id="rEmpty" class="muted small" style="margin-top:8px">Start a run and it appears here, with live progress.</div>
+      <div id="rEmpty" class="muted">Start a run and it appears here with live progress.</div>
       <div id="rBody" class="hidden">
-        <div class="small muted" id="rMeta" style="margin:8px 0"></div>
-        <div class="progress"><div id="rBar"></div></div>
-        <div class="small muted" id="rTime" style="margin-top:4px"></div>
-        <div id="rPhases" class="phases" style="margin-top:12px"></div>
+        <div class="meta" id="rMeta" style="margin-bottom:12px"></div>
+        <dl id="rLive" class="live hidden"></dl>
+        <div class="scope" id="rScope">
+          <div id="rPhases"></div>
+        </div>
+        <div class="track" role="progressbar" aria-label="Run progress"><div id="rBar"></div></div>
+        <div class="small muted" id="rTime" style="margin-top:8px"></div>
         <div id="rOutcome"></div>
+        <div class="noterow">
+          <input id="noteInput" type="text" maxlength="500" placeholder="Add a note to this run, for example what changed since the last one" aria-label="Run note">
+          <button id="noteSave">Save note</button>
+        </div>
         <div class="tabs">
           <button data-tab="results" class="on">Results</button>
           <button data-tab="regression">Baseline check</button>
@@ -160,26 +327,37 @@ dialog::backdrop { background: rgba(10, 16, 24, .45); }
         <div id="tab-regression" class="hidden"></div>
         <div id="tab-log" class="hidden"><pre class="log" id="logBox"></pre></div>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <h2>History</h2>
+    <section class="section">
+      <div class="head" style="margin-bottom:12px">
+        <h2 class="sec">History</h2>
+        <div class="filters">
+          <select id="fProfile" aria-label="Filter by profile"><option value="">All profiles</option></select>
+          <select id="fStatus" aria-label="Filter by status"><option value="">Any status</option></select>
+          <input id="fText" type="search" placeholder="Search notes" aria-label="Search notes">
+          <button id="compareBtn" class="small-btn" disabled>Compare two runs</button>
+        </div>
+      </div>
       <div class="table-wrap"><table class="history"><thead><tr>
-        <th>Started</th><th>Profile</th><th>Status</th><th>Duration</th></tr></thead>
+        <th class="pick"></th><th>Started</th><th>Profile</th><th>Status</th><th>Duration</th><th>Note</th></tr></thead>
         <tbody id="histBody"></tbody></table></div>
-      <div id="histEmpty" class="muted small hidden">No runs yet.</div>
-    </div>
+      <div id="histEmpty" class="muted hidden">No runs yet. Pick a profile and press Run.</div>
+      <div id="compare" class="compare hidden"></div>
+    </section>
   </main>
 </div>
 
 <dialog id="confirmDlg">
-  <h2>Confirm large run</h2>
+  <h2>Check before running</h2>
   <p id="confirmText"></p>
   <div class="row" style="justify-content:flex-end"><button id="confirmNo">Cancel</button><button id="confirmYes" class="primary">Run anyway</button></div>
 </dialog>
 
 <script>
 "use strict";
+/* ?theme=light forces the light theme; otherwise the browser setting decides. */
+if (new URLSearchParams(location.search).get("theme") === "light") document.documentElement.dataset.theme = "light";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const state = { config: null, profiles: [], selected: null, runId: null, logOffset: 0, logRunId: null, timer: null, activeRun: null, tab: "results" };
@@ -201,12 +379,15 @@ const fmtTime = (t) => new Date(t * 1000).toLocaleString(undefined, { month: "sh
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const planText = (s) => (s.tps != null || s.rps != null) ? `target ${rate(s)}, ` : "";
 const rate = (s) => s.tps != null ? `${s.tps} TPS` : s.rps != null ? `${s.rps} req/s` : `${s.threads} thr`;
+const stepValue = (s) => s.tps ?? s.rps ?? s.threads ?? 1;
+const metaSpans = (items) => items.filter(Boolean).map((t) => `<span>${esc(t)}</span>`).join("");
 
 const STATUS = {
   running: ["Running", "running"], passed: ["Passed", "passed"], stop_rule: ["Stop rule triggered", "warn"],
   instance_failed: ["Instance failed", "bad"], regression: ["Regression", "bad"], error: ["Error", "bad"],
   stopped: ["Stopped", "warn"], lost: ["Lost track of run", "warn"], no_data: ["No usable data", "bad"],
 };
+const TONE = { running: "run", passed: "ok", stop_rule: "warn", stopped: "warn", lost: "warn", instance_failed: "bad", regression: "bad", error: "bad", no_data: "bad" };
 function badge(status) { const [t, c] = STATUS[status] || [status, "idle"]; return `<span class="badge ${c}">${esc(t)}</span>`; }
 
 const OUTCOME = {
@@ -220,6 +401,73 @@ const OUTCOME = {
   lost: ["info", "The console lost track of this run (it was restarted while the run was going). The log and Grafana still have whatever it recorded."],
 };
 
+/* ---------- the load curve ---------- */
+const SVG_NS = "http://www.w3.org/2000/svg";
+/* Axis with at most five whole-number gaps: returns the top value and the gap size. */
+function niceAxis(v) {
+  for (let j = 0; j < 8; j++) for (const m of [1, 2, 2.5, 5]) {
+    const gap = m * Math.pow(10, j);
+    if (Math.ceil(v / gap) <= 5) return { gap, top: Math.ceil(v / gap) * gap };
+  }
+  return { gap: v, top: v };
+}
+function curveUnit(steps) { return steps.some((s) => s.tps != null) ? "TPS" : steps.some((s) => s.rps != null) ? "req/s" : "threads"; }
+
+/* Draws the planned load as a stepped curve. With `run`, the part already executed is filled in and an
+   orange marker shows where the run is now. */
+function curveSvg(steps, run) {
+  const W = 960, H = 232, L = 46, R = 14, T = 24, B = 28, pw = W - L - R, ph = H - T - B;
+  const total = Math.max(1, steps.reduce((a, s) => a + Math.max(1, s.duration_sec), 0));
+  const { gap, top } = niceAxis(Math.max(1, ...steps.map(stepValue)));
+  const X = (t) => L + pw * t / total, Y = (v) => T + ph * (1 - v / top);
+  let t0 = 0; const segs = steps.map((s) => { const a = t0; t0 += Math.max(1, s.duration_sec); return { s, a, b: t0 }; });
+
+  const stepPath = (clipTo) => {
+    let d = `M${X(0)},${Y(0)}`;
+    segs.forEach((g) => { const b = clipTo == null ? g.b : Math.min(g.b, clipTo); if (b <= g.a) return; d += `L${X(g.a)},${Y(stepValue(g.s))}L${X(b)},${Y(stepValue(g.s))}`; });
+    const end = clipTo == null ? total : Math.min(total, clipTo);
+    return d + `L${X(end)},${Y(0)}Z`;
+  };
+
+  let grid = "";
+  for (let v = 0; v <= top + 1e-9; v += gap) {
+    const y = Y(v);
+    grid += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text x="${L - 8}" y="${y + 4}" text-anchor="end">${Math.round(v * 10) / 10}</text>`;
+  }
+  const stepSize = [10, 15, 30, 60, 120, 180, 300, 600, 900, 1800, 3600].find((x) => total / x <= 8) || 3600;
+  let ticks = "";
+  for (let t = 0; t <= total; t += stepSize) ticks += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle">${fmtClock(t)}</text>`;
+
+  const labels = segs.map((g) => {
+    const w = X(g.b) - X(g.a);
+    return w >= 54 ? `<text class="val" x="${(X(g.a) + X(g.b)) / 2}" y="${Y(stepValue(g.s)) - 8}">${esc(String(stepValue(g.s)))}</text>` : "";
+  }).join("");
+  const hover = segs.map((g) => `<rect x="${X(g.a)}" y="${T}" width="${Math.max(2, X(g.b) - X(g.a))}" height="${ph}" fill="transparent"><title>${esc(g.s.step_id)}: ${esc(rate(g.s))}, ${g.s.threads} threads x ${g.s.instances}, ${fmtDur(g.s.duration_sec)}</title></rect>`).join("");
+
+  let prog = "", now = "";
+  if (run && run.elapsed > 0) {
+    const cut = Math.min(total, run.elapsed);
+    prog = `<path class="prog ${run.tone}" d="${stepPath(cut)}"/>`;
+    if (run.running) {
+      const cur = segs.find((g) => cut >= g.a && cut <= g.b) || segs[segs.length - 1], x = X(cut), y = Y(stepValue(cur.s));
+      now = `<g class="now"><line x1="${x}" x2="${x}" y1="${T - 6}" y2="${H - B}"/><circle class="halo" cx="${x}" cy="${y}" r="6"/><circle cx="${x}" cy="${y}" r="4.5"/></g>`;
+    }
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Planned load over time, in ${esc(curveUnit(steps))}">
+    <g class="grid axis">${grid}</g><g class="axis">${ticks}</g>
+    <text class="unit" x="${L}" y="12">${esc(curveUnit(steps))}</text>
+    <g class="curve"><path class="plan" d="${stepPath(null)}"/>${prog}${labels}</g>${now}${hover}</svg>`;
+}
+function drawCurve(el, steps, run) { el.innerHTML = curveSvg(steps, run); }
+
+function thumb(steps) {
+  if (!steps || !steps.length) return '<span class="thumb none"></span>';
+  const W = 56, H = 28, total = steps.reduce((a, s) => a + Math.max(1, s.duration_sec), 0), top = Math.max(1, ...steps.map(stepValue));
+  let t = 0, d = `M0,${H}`;
+  steps.forEach((s) => { const x1 = W * t / total, y = H - 2 - (H - 6) * stepValue(s) / top; t += Math.max(1, s.duration_sec); d += `L${x1},${y}L${W * t / total},${y}`; });
+  return `<svg class="thumb" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}L${W},${H}Z" fill="#0b5fd8" fill-opacity=".18" stroke="#0b5fd8" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+}
+
 /* ---------- profiles ---------- */
 function renderProfileList() {
   const q = $("search").value.trim().toLowerCase();
@@ -228,22 +476,14 @@ function renderProfileList() {
     const li = document.createElement("li");
     if (p.name === state.selected) li.className = "sel";
     li.innerHTML = p.error
-      ? `<div class="name">${esc(p.name)}</div><div class="small muted">${esc(p.error)}</div>`
-      : `<div class="name">${esc(p.name)}</div><div class="small muted">${plural(p.steps.length, "phase")} · ${fmtDur(p.total_sec)}${p.peak_tps ? " · peak " + p.peak_tps + " TPS" : p.peak_rps ? " · peak " + p.peak_rps + " req/s" : ""}</div>`;
+      ? `${thumb(null)}<div><div class="name">${esc(p.name)}</div><div class="meta">${esc(p.error)}</div></div>`
+      : `${thumb(p.steps)}<div><div class="name">${esc(p.name)}</div><div class="meta">${metaSpans([plural(p.steps.length, "phase"), fmtDur(p.total_sec), p.peak_tps ? "peak " + p.peak_tps + " TPS" : p.peak_rps ? "peak " + p.peak_rps + " req/s" : ""])}</div></div>`;
     li.onclick = () => selectProfile(p.name);
     ul.appendChild(li);
   });
 }
 
-function phaseBars(steps, el, currentIdx, doneCount) {
-  const max = Math.max(1, ...steps.map((s) => s.tps ?? s.rps ?? s.threads ?? 1));
-  el.innerHTML = steps.map((s, i) => {
-    const v = s.tps ?? s.rps ?? s.threads ?? 1;
-    const cls = i < doneCount ? "done" : i === currentIdx ? "cur" : "";
-    return `<div class="phase ${cls}" title="${esc(s.step_id)}: ${esc(rate(s))}, ${s.threads} threads x ${s.instances}, ${fmtDur(s.duration_sec)}" style="flex-grow:${Math.max(1, s.duration_sec)}">
-      <div class="bar" style="height:${Math.max(6, Math.round(70 * v / max))}px"></div><div class="lbl">${esc(rate(s))}</div></div>`;
-  }).join("");
-}
+function fact(label, value, small) { return `<div class="fact${small ? " wide" : ""}"><dt>${esc(label)}</dt><dd${small ? ' class="small-val"' : ""}>${esc(value)}</dd></div>`; }
 
 async function selectProfile(name) {
   state.selected = name; renderProfileList();
@@ -253,7 +493,7 @@ async function selectProfile(name) {
   $("pName").textContent = name;
   if (!p || p.error) {
     $("pError").textContent = p ? p.error : "Profile not found"; $("pError").classList.remove("hidden");
-    ["pChips", "pPhases"].forEach((i) => $(i).innerHTML = ""); $("pPhasesNote").textContent = "";
+    $("pChips").innerHTML = ""; $("pPhases").innerHTML = '<div class="scope-empty">This profile has no load to show.</div>'; $("pPhasesNote").textContent = "";
     $("runBtn").disabled = $("runBaseBtn").disabled = true; return;
   }
   $("pError").classList.add("hidden");
@@ -261,20 +501,61 @@ async function selectProfile(name) {
   const tgt = !p.target ? (p.test_plan || "built-in plan")
     : p.target.protocol === "jdbc" ? `${p.target.driver || "database"}://${hostPort}/${p.target.database || ""}`
     : `${p.target.protocol || "http"}://${hostPort}`;
+  const isDb = p.target && p.target.protocol === "jdbc";
   $("pChips").innerHTML = [
-    `<span class="chip">${fmtDur(p.total_sec)} total</span>`,
-    `<span class="chip">${plural(p.steps.length, "phase")}</span>`,
-    p.peak_tps ? `<span class="chip">peak ${p.peak_tps} TPS</span>` : p.peak_rps ? `<span class="chip">peak ${p.peak_rps} req/s</span>` : "",
-    `<span class="chip">up to ${p.peak_threads} threads × ${p.peak_instances}</span>`,
-    `<span class="chip">${esc(tgt)}</span>`,
-    p.requests.length ? `<span class="chip">${plural(p.requests.length, p.target && p.target.protocol === "jdbc" ? "query" : "request").replace(/quer(y)s$/, "queries")}/iteration</span>` : "",
+    fact("Duration", fmtDur(p.total_sec)),
+    fact("Phases", String(p.steps.length)),
+    p.peak_tps ? fact("Peak rate", p.peak_tps + " TPS") : p.peak_rps ? fact("Peak rate", p.peak_rps + " req/s") : "",
+    fact("Most concurrency", `${p.peak_threads} threads × ${p.peak_instances}`),
+    fact("Target", tgt, true),
+    p.requests.length ? fact(isDb ? "Queries per iteration" : "Requests per iteration", String(p.requests.length)) : "",
   ].join("");
-  $("pBaseline").textContent = p.baseline ? `baseline “${p.baseline}” ${p.baseline_exists ? "saved" : "not saved yet"}` : "no baseline check";
-  phaseBars(p.steps, $("pPhases"), -1, 0);
-  $("pPhasesNote").textContent = "Bar height is the target rate for each phase; width is how long it lasts.";
+  $("pBaseline").textContent = p.baseline ? `Baseline “${p.baseline}” ${p.baseline_exists ? "saved" : "not saved yet"}` : "No baseline check";
+  const scope = $("pScope"); scope.classList.remove("reveal"); void scope.offsetWidth; scope.classList.add("reveal");
+  drawCurve($("pPhases"), p.steps, null);
+  $("pPhasesNote").textContent = "Height is the target rate for each phase. Width is how long it lasts.";
+  $("pTry").classList.add("hidden"); $("pTry").innerHTML = "";
+  loadChecklist(name);
   updateRunButtons();
   $("runBaseBtn").title = p.baseline ? "Run, and if it is clean, record it as the baseline for this profile" : "This profile has no regression.baseline name";
 }
+
+async function loadChecklist(name) {
+  $("pCheck").innerHTML = '<li><span class="dot"></span><span class="why">Checking…</span></li>';
+  try {
+    const d = await api(`/api/profiles/${encodeURIComponent(name)}/precheck`);
+    if (state.selected !== name) return;
+    $("pCheck").innerHTML = d.items.map((i) => `<li><span class="dot ${i.status === "ok" ? "" : "warn"}"></span><span><span class="what">${esc(i.label)}.</span> <span class="why">${esc(i.detail)}</span></span></li>`).join("");
+  } catch (e) { $("pCheck").innerHTML = `<li><span class="dot warn"></span><span class="why">${esc(e.message)}</span></li>`; }
+}
+
+$("tryBtn").onclick = async () => {
+  if (!state.selected) return;
+  const box = $("pTry"); box.classList.remove("hidden"); box.innerHTML = '<div class="muted">Sending the first request…</div>';
+  $("tryBtn").disabled = true;
+  try {
+    const r = await api(`/api/profiles/${encodeURIComponent(state.selected)}/try`, { method: "POST", body: {} });
+    box.innerHTML = `<div class="msg ${r.ok ? "ok" : "err"}" style="margin:0">${esc(r.message)}</div>` + (r.body ? `<pre>${esc(r.body)}</pre>` : "");
+  } catch (e) { box.innerHTML = `<div class="msg err" style="margin:0">${esc(e.message)}</div>`; }
+  $("tryBtn").disabled = false;
+};
+$("dupBtn").onclick = async () => {
+  if (!state.selected) return;
+  await loadYaml();
+  const taken = new Set(state.profiles.map((p) => p.name));
+  let n = `${state.selected}-copy`, i = 2; while (taken.has(n)) n = `${state.selected}-copy-${i++}`;
+  $("saveName").value = n; $("editor").classList.remove("hidden"); $("yamlText").focus();
+  setMsg("info", `This is a copy. Change what you need, then Save to create ${n}.yaml.`);
+};
+$("delBtn").onclick = async () => {
+  if (!state.selected || !confirm(`Delete the profile “${state.selected}”? Its saved baseline and past runs stay.`)) return;
+  try {
+    const gone = state.selected; await api(`/api/profiles/${encodeURIComponent(gone)}`, { method: "DELETE" });
+    state.selected = null; $("profileBody").classList.add("hidden"); $("noProfile").classList.remove("hidden");
+    await loadProfiles(); setMsg("", "");
+  } catch (e) { setMsg("err", e.message); }
+};
+$("builderBtn").onclick = () => window.open("/builder.html", "_blank", "noopener");
 
 function updateRunButtons() {
   const p = state.profiles.find((x) => x.name === state.selected);
@@ -311,7 +592,7 @@ $("saveBtn").onclick = async () => {
 $("newBtn").onclick = () => {
   state.selected = null; renderProfileList();
   $("noProfile").classList.add("hidden"); $("profileBody").classList.remove("hidden");
-  $("pName").textContent = "New profile"; $("pChips").innerHTML = ""; $("pPhases").innerHTML = ""; $("pPhasesNote").textContent = "";
+  $("pName").textContent = "New profile"; $("pChips").innerHTML = ""; $("pPhases").innerHTML = '<div class="scope-empty">Write the profile below. Its load curve appears once it is saved.</div>'; $("pPhasesNote").textContent = "";
   $("pBaseline").textContent = ""; $("pError").classList.add("hidden"); $("runBtn").disabled = $("runBaseBtn").disabled = true;
   $("yamlText").value = "# Phased load: each step is one phase.\ntest_plan: rest/ramp.jmx\nstep_duration_sec: 60\nwarmup_sec: 8\nthink_time_ms: 200\nstop_rule:\n  max_error_rate_pct: 5\n  max_avg_response_ms: 3000\ntarget:\n  protocol: http\n  host: host.docker.internal\n  port: 8078\n  auth: api_key\nrequests:\n- name: List customers\n  method: GET\n  path: /ws/rest/proxy/v1/customers\nsteps:\n- instances: 1\n  threads: 8\n  tps: 10\n- instances: 1\n  threads: 14\n  tps: 20\n";
   $("saveName").value = ""; $("editor").classList.remove("hidden"); setMsg("", "");
@@ -364,48 +645,54 @@ function renderRun(run) {
   $("stopBtn").classList.toggle("hidden", !running);
   $("rGrafana").classList.remove("hidden"); $("rGrafana").href = grafanaLink(run);
   const elapsed = (run.ended_at || Date.now() / 1000) - run.started_at;
-  $("rMeta").textContent = `${run.profile} · started ${fmtTime(run.started_at)}${run.save_baseline ? " · will save baseline" : ""}${run.ramp_run_id ? " · run ID " + run.ramp_run_id : ""}`;
+  $("rMeta").innerHTML = metaSpans([run.profile, "started " + fmtTime(run.started_at), run.save_baseline ? "will save baseline" : "", run.ramp_run_id ? "run ID " + run.ramp_run_id : ""]);
   $("rBar").style.width = Math.min(100, 100 * elapsed / Math.max(1, run.total_sec)) + "%";
-  $("rTime").textContent = running ? `${fmtClock(elapsed)} of about ${fmtClock(run.total_sec)} (${run.current_step ? "now in " + run.current_step : "starting"})`
+  $("rBar").style.background = { ok: "var(--teal)", warn: "var(--amber)", bad: "var(--rose)" }[TONE[run.status]] || "var(--blue)";
+  $("rTime").textContent = running ? `${fmtClock(elapsed)} of about ${fmtClock(run.total_sec)}, ${run.current_step ? "now in " + run.current_step : "starting"}`
                                    : `Took ${fmtClock(elapsed)}`;
-  const curIdx = run.current_step ? run.steps.findIndex((s) => s.step_id === run.current_step) : -1;
-  phaseBars(run.steps, $("rPhases"), running ? curIdx : -1, running ? Math.max(0, curIdx) : (run.status === "passed" ? run.steps.length : 0));
+  const doneSec = running ? elapsed : run.status === "passed" ? run.total_sec : elapsed;
+  drawCurve($("rPhases"), run.steps, { elapsed: doneSec, running, tone: TONE[run.status] || "run" });
+  const done = !running && run.summary && run.summary.rows && run.summary.rows.length;
+  $("csvBtn").classList.toggle("hidden", !done); $("reportBtn").classList.toggle("hidden", !done);
+  state.currentRun = run;
+  if (document.activeElement !== $("noteInput") && $("noteInput").dataset.run !== run.id) { $("noteInput").value = run.note || ""; $("noteInput").dataset.run = run.id; }
+  if (!running) { $("rLive").classList.add("hidden"); }
   const o = OUTCOME[run.status];
   $("rOutcome").innerHTML = o ? `<div class="msg ${o[0]}">${esc(o[1])}</div>` : "";
   if (!running) { renderResults(run); renderRegression(run); }
-  else { $("tab-results").innerHTML = '<div class="muted small">Results appear when the run finishes. Watch the Log tab, or open Grafana for live charts.</div>'; $("tab-regression").innerHTML = ""; }
+  else { $("tab-results").innerHTML = '<div class="muted">Results appear when the run finishes. Watch the Log tab, or open Grafana for live charts.</div>'; $("tab-regression").innerHTML = ""; }
 }
 
 function failuresHtml(s) {
   const bad = (s.failures || []).filter((f) => f.failed > 0);
   if (!bad.length) return "";
-  return '<div class="msg err" style="margin-top:12px"><b>Failed requests, from JMeter\'s raw results</b>' + bad.map((f) =>
+  return '<div class="msg err"><b>Failed requests, from JMeter\'s raw results</b>' + bad.map((f) =>
     `<div style="margin-top:6px">${esc(f.step_id)}: ${f.failed} of ${f.total} failed (${f.total ? (100 * f.failed / f.total).toFixed(1) : "0.0"}%)` +
     f.top.map((t) => `<div class="small" style="margin-left:14px">${t[2]} × [${esc(t[0])}] ${esc(t[1])}</div>`).join("") + "</div>").join("") + "</div>";
 }
 
-function renderResults(run) {
-  const s = run.summary; const el = $("tab-results");
-  if (!s || !s.rows || !s.rows.length) { el.innerHTML = failuresHtml(s || {}) + '<div class="muted small">No results were recorded for this run.</div>'; return; }
+function renderResults(run, el = $("tab-results")) {
+  const s = run.summary;
+  if (!s || !s.rows || !s.rows.length) { el.innerHTML = failuresHtml(s || {}) + '<div class="muted">No results were recorded for this run.</div>'; return; }
   const plan = Object.fromEntries(run.steps.map((x) => [x.step_id, x]));
   let html = '<div class="table-wrap"><table><thead><tr><th>Phase</th><th>Endpoint</th><th>Samples</th><th>Avg ms</th><th>Median</th><th>p90</th><th>p95</th><th>p99</th><th>Errors</th><th>Throughput</th></tr></thead><tbody>';
   let last = null;
   s.rows.forEach((r) => {
     if (r.step_id !== last) {
       last = r.step_id; const p = plan[r.step_id];
-      html += `<tr class="stephead"><td colspan="10">${esc(r.step_id)}${p ? ` — ${esc(planText(p))}${p.threads} threads × ${p.instances}, ${fmtDur(p.duration_sec)}` : ""}</td></tr>`;
+      html += `<tr class="stephead"><td colspan="10">${esc(r.step_id)}${p ? `, ${esc(planText(p))}${p.threads} threads × ${p.instances}, ${fmtDur(p.duration_sec)}` : ""}</td></tr>`;
     }
-    html += `<tr><td>${esc(r.step_id)}</td><td>${esc(r.label)}${r.saturated ? ' <span class="badge warn" title="Load generator CPU looked saturated">generator busy</span>' : ""}</td><td>${r.samples}</td><td>${Math.round(r.avg_ms)}</td><td>${Math.round(r.median_ms)}</td><td>${Math.round(r.p90_ms)}</td><td>${Math.round(r.p95_ms)}</td><td>${Math.round(r.p99_ms)}</td><td>${Number(r.error_pct).toFixed(1)}%</td><td>${Number(r.throughput).toFixed(2)}/s</td></tr>`;
+    html += `<tr><td>${esc(r.step_id)}</td><td>${esc(r.label)}${r.saturated ? ' <span class="badge warn" title="Load generator CPU looked saturated">generator busy</span>' : ""}</td><td>${r.samples}</td><td>${Math.round(r.avg_ms)}</td><td>${Math.round(r.median_ms)}</td><td>${Math.round(r.p90_ms)}</td><td class="strong">${Math.round(r.p95_ms)}</td><td>${Math.round(r.p99_ms)}</td><td class="${r.error_pct > 0 ? "bad" : ""}">${Number(r.error_pct).toFixed(1)}%</td><td>${Number(r.throughput).toFixed(2)}/s</td></tr>`;
   });
   html += "</tbody></table></div>";
   html += failuresHtml(s);
-  if (s.slow_request_count) html += `<div class="muted small" style="margin-top:8px">${s.slow_request_count} slow requests were recorded (slowest ${s.slow_requests.length} are in this run's summary file).</div>`;
+  if (s.slow_request_count) html += `<div class="muted small" style="margin-top:10px">${s.slow_request_count} slow requests were recorded (the slowest ${s.slow_requests.length} are in this run's summary file).</div>`;
   el.innerHTML = html;
 }
 
-function renderRegression(run) {
-  const g = run.summary && run.summary.regression; const el = $("tab-regression");
-  if (!g) { el.innerHTML = '<div class="muted small">This profile has no baseline check.</div>'; return; }
+function renderRegression(run, el = $("tab-regression")) {
+  const g = run.summary && run.summary.regression;
+  if (!g) { el.innerHTML = '<div class="muted">This profile has no baseline check.</div>'; return; }
   const note = { saved: `Saved as baseline “${g.baseline}”.`, not_saved: "Baseline not saved: the run had a stop rule or a failed instance, so it isn't a trustworthy reference.",
     no_baseline: `No baseline “${g.baseline}” exists yet. Use “Run and save as baseline” to record one.`, passed: `Compared with baseline “${g.baseline}”: no regression.`,
     failed: `Compared with baseline “${g.baseline}”: regression found.` }[g.status] || "";
@@ -421,6 +708,56 @@ function renderRegression(run) {
   el.innerHTML = html;
 }
 
+const fmtNum = (v, digits = 0) => v == null ? "–" : Number(v).toFixed(digits);
+async function pullLive(run) {
+  if (run.status !== "running") return;
+  let m = {}; try { m = await api(`/api/runs/${run.id}/live`); } catch (e) { /* the numbers are a bonus */ }
+  const tile = (label, value, unit, bad) => `<div class="tile"><dt>${label}</dt><dd${bad ? ' class="bad"' : ""}>${value}${unit ? `<small>${unit}</small>` : ""}</dd></div>`;
+  $("rLive").innerHTML = tile("Throughput", fmtNum(m.throughput, 1), "req/s") + tile("Average", fmtNum(m.avg_ms), "ms") + tile("Slowest 5%", fmtNum(m.p95_ms), "ms")
+    + tile("Errors", fmtNum(m.error_pct, 1), "%", m.error_pct > 0) + tile("Threads", fmtNum(m.active_threads), "");
+  $("rLive").classList.remove("hidden");
+}
+
+$("noteSave").onclick = async () => {
+  if (!state.runId) return;
+  try { const r = await api(`/api/runs/${state.runId}/note`, { method: "PUT", body: { note: $("noteInput").value } }); $("noteInput").value = r.note; await poll(); }
+  catch (e) { alert(e.message); }
+};
+$("noteInput").onkeydown = (e) => { if (e.key === "Enter") $("noteSave").click(); };
+
+/* ---------- export ---------- */
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+$("csvBtn").onclick = () => {
+  const run = state.currentRun; if (!run || !run.summary) return;
+  const cols = [["step_id", "phase"], ["label", "endpoint"], ["samples", "samples"], ["avg_ms", "avg_ms"], ["median_ms", "median_ms"], ["p90_ms", "p90_ms"], ["p95_ms", "p95_ms"], ["p99_ms", "p99_ms"], ["error_pct", "error_pct"], ["throughput", "throughput_per_s"]];
+  const cell = (v) => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  const csv = [cols.map((c) => c[1]).join(",")].concat(run.summary.rows.map((r) => cols.map((c) => cell(r[c[0]])).join(","))).join("\n") + "\n";
+  download(`${run.profile}-${run.id}.csv`, csv, "text/csv");
+};
+
+const REPORT_CSS = `body{font:15px/1.5 system-ui,sans-serif;color:#13233a;max-width:1000px;margin:32px auto;padding:0 20px;font-variant-numeric:tabular-nums}h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;margin:28px 0 8px}.muted{color:#566880}.badge{display:inline-block;border-radius:999px;padding:3px 12px;font-weight:600;font-size:13px;background:#e5ebf2}.badge.passed{background:#dcf3ec;color:#0f8f6e}.badge.bad{background:#fbe6e8;color:#c7303f}.badge.warn{background:#fff1d1;color:#8f6210}
+.scope{background:#0f1e37;color:#dce6f5;border-radius:16px;padding:14px 16px}.scope svg{display:block;width:100%;height:auto}.axis text{fill:#8ea2c0;font:500 11px sans-serif}.grid line{stroke:rgba(255,255,255,.09)}.unit{fill:#8ea2c0;font:600 11px sans-serif}.plan{fill:rgba(61,111,196,.28);stroke:#3d6fc4;stroke-width:1.5}.prog{stroke-width:2}.prog.ok{fill:rgba(60,207,160,.4);stroke:#3ccfa0}.prog.run{fill:rgba(94,160,255,.42);stroke:#5ea0ff}.prog.warn{fill:rgba(240,182,74,.38);stroke:#f0b64a}.prog.bad{fill:rgba(255,125,138,.36);stroke:#ff7d8a}.val{fill:#dce6f5;font:600 12px sans-serif;text-anchor:middle}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:7px 10px;text-align:right;border-bottom:1px solid #e5ebf2;white-space:nowrap}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}th{color:#566880;font-weight:600}tr.stephead td{background:#e4eefc;font-weight:600;text-align:left}td.bad{color:#c7303f;font-weight:700}.msg{border-left:4px solid;padding:8px 12px;border-radius:8px;margin:12px 0}.msg.ok{background:#dcf3ec;color:#0f8f6e}.msg.err{background:#fbe6e8;color:#c7303f}.msg.info{background:#e4eefc;color:#13233a;border-color:#0b5fd8}@media print{body{margin:0}}`;
+$("reportBtn").onclick = () => {
+  const run = state.currentRun; if (!run || !run.summary) return;
+  const [label, cls] = STATUS[run.status] || [run.status, "idle"];
+  const o = OUTCOME[run.status];
+  const svg = curveSvg(run.steps, { elapsed: run.total_sec, running: false, tone: TONE[run.status] || "run" });
+  const resultsEl = document.createElement("div"), regEl = document.createElement("div");
+  renderResults(run, resultsEl); renderRegression(run, regEl);
+  const resultsHtml = resultsEl.innerHTML, regHtml = regEl.innerHTML;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(run.profile)} load test report</title><style>${REPORT_CSS}</style></head><body>
+<h1>${esc(run.profile)}</h1><div class="muted">Started ${esc(fmtTime(run.started_at))}${run.ramp_run_id ? ", run ID " + esc(run.ramp_run_id) : ""}, took ${fmtClock((run.ended_at || run.started_at) - run.started_at)}</div>
+<p><span class="badge ${cls === "passed" ? "passed" : cls === "bad" ? "bad" : cls === "warn" ? "warn" : ""}">${esc(label)}</span></p>
+${o ? `<div class="msg ${o[0]}">${esc(o[1])}</div>` : ""}${run.note ? `<div class="msg info"><b>Note:</b> ${esc(run.note)}</div>` : ""}
+<h2>Load</h2><div class="scope">${svg}</div><h2>Results</h2>${resultsHtml}<h2>Baseline check</h2>${regHtml}
+<p class="muted">Generated by the Load Test Console on ${esc(new Date().toLocaleString())}.</p></body></html>`;
+  download(`${run.profile}-${run.id}-report.html`, html, "text/html");
+};
+
 async function pullLog(run) {
   if (state.logRunId !== run.id) { state.logRunId = run.id; state.logOffset = 0; $("logBox").textContent = ""; }
   const box = $("logBox"); const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
@@ -432,14 +769,61 @@ async function pullLog(run) {
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-function renderHistory(runs) {
-  $("histEmpty").classList.toggle("hidden", runs.length > 0);
-  $("histBody").innerHTML = runs.map((r) => {
-    const end = r.ended_at || Date.now() / 1000;
-    return `<tr data-id="${esc(r.id)}"><td>${fmtTime(r.started_at)}</td><td>${esc(r.profile)}</td><td>${badge(r.status)}</td><td>${fmtClock(end - r.started_at)}</td></tr>`;
-  }).join("");
-  document.querySelectorAll("#histBody tr").forEach((tr) => tr.onclick = () => { state.runId = tr.dataset.id; poll(); window.scrollTo({ top: $("runCard").offsetTop - 70, behavior: "smooth" }); });
+state.picked = new Set();
+function syncFilterChoices(runs) {
+  const fill = (id, values, label) => {
+    const el = $(id), keep = el.value;
+    el.innerHTML = `<option value="">${label}</option>` + values.map((v) => `<option value="${esc(v)}">${esc(id === "fStatus" ? (STATUS[v] || [v])[0] : v)}</option>`).join("");
+    el.value = values.includes(keep) ? keep : "";
+  };
+  fill("fProfile", [...new Set(runs.map((r) => r.profile))].sort(), "All profiles");
+  fill("fStatus", [...new Set(runs.map((r) => r.status))].sort(), "Any status");
 }
+function renderHistory(runs) {
+  state.runs = runs; syncFilterChoices(runs);
+  const fp = $("fProfile").value, fs = $("fStatus").value, ft = $("fText").value.trim().toLowerCase();
+  const shown = runs.filter((r) => (!fp || r.profile === fp) && (!fs || r.status === fs) && (!ft || (r.note || "").toLowerCase().includes(ft) || r.profile.toLowerCase().includes(ft)));
+  $("histEmpty").classList.toggle("hidden", runs.length > 0);
+  $("histEmpty").textContent = runs.length ? "" : "No runs yet. Pick a profile and press Run.";
+  $("histBody").innerHTML = shown.map((r) => {
+    const end = r.ended_at || Date.now() / 1000;
+    return `<tr data-id="${esc(r.id)}"${r.id === state.runId ? ' class="cur"' : ""}><td class="pick"><input type="checkbox" class="pickbox" data-id="${esc(r.id)}" aria-label="Select run for comparison"${state.picked.has(r.id) ? " checked" : ""}${r.status === "running" ? " disabled" : ""}></td><td>${fmtTime(r.started_at)}</td><td>${esc(r.profile)}</td><td>${badge(r.status)}</td><td>${fmtClock(end - r.started_at)}</td><td class="noteCell" title="${esc(r.note || "")}">${esc(r.note || "")}</td></tr>`;
+  }).join("") || (runs.length ? '<tr><td colspan="6" class="muted">No runs match those filters.</td></tr>' : "");
+  document.querySelectorAll("#histBody tr[data-id]").forEach((tr) => tr.onclick = (e) => {
+    if (e.target.classList.contains("pickbox")) return;
+    state.runId = tr.dataset.id; poll(); window.scrollTo({ top: $("runCard").offsetTop - 20, behavior: "smooth" });
+  });
+  document.querySelectorAll(".pickbox").forEach((cb) => cb.onchange = () => {
+    if (cb.checked) state.picked.add(cb.dataset.id); else state.picked.delete(cb.dataset.id);
+    if (state.picked.size > 2) { const first = state.picked.values().next().value; state.picked.delete(first); document.querySelectorAll(".pickbox").forEach((b) => b.checked = state.picked.has(b.dataset.id)); }
+    $("compareBtn").disabled = state.picked.size !== 2;
+  });
+  $("compareBtn").disabled = state.picked.size !== 2;
+}
+["fProfile", "fStatus"].forEach((id) => $(id).onchange = () => renderHistory(state.runs || []));
+$("fText").oninput = () => renderHistory(state.runs || []);
+
+$("compareBtn").onclick = async () => {
+  const [a, b] = (await Promise.all([...state.picked].map((id) => api(`/api/runs/${id}`)))).sort((x, y) => x.started_at - y.started_at);
+  const key = (r) => `${r.step_id}|${r.label}`;
+  const rowsA = new Map(((a.summary || {}).rows || []).map((r) => [key(r), r])), rowsB = new Map(((b.summary || {}).rows || []).map((r) => [key(r), r]));
+  const keys = [...new Set([...rowsA.keys(), ...rowsB.keys()])];
+  const change = (x, y, lowerIsBetter) => {
+    if (x == null || y == null || !x) return "<td></td><td></td><td></td>";
+    const pct = 100 * (y - x) / x, good = lowerIsBetter ? pct < -2 : pct > 2, badc = lowerIsBetter ? pct > 2 : pct < -2;
+    return `<td>${Math.round(x * 10) / 10}</td><td>${Math.round(y * 10) / 10}</td><td class="${good ? "better" : badc ? "worse" : ""}">${pct >= 0 ? "+" : ""}${Math.round(pct)}%</td>`;
+  };
+  const head = (r) => `${esc(r.profile)}, ${esc(fmtTime(r.started_at))}`;
+  let html = `<h3 class="sub">Comparing two runs</h3><div class="meta" style="margin-bottom:10px"><span>Earlier: ${head(a)}</span><span>Later: ${head(b)}</span></div>`;
+  html += '<div class="table-wrap"><table><thead><tr><th>Phase</th><th>Endpoint</th><th>p95 earlier (ms)</th><th>p95 later</th><th>Change</th><th>Errors earlier (%)</th><th>Errors later</th><th>Change</th><th>Throughput earlier (/s)</th><th>Throughput later</th><th>Change</th></tr></thead><tbody>';
+  keys.forEach((k) => {
+    const x = rowsA.get(k), y = rowsB.get(k), r = x || y;
+    html += `<tr><td>${esc(r.step_id)}</td><td>${esc(r.label)}</td>${change(x && x.p95_ms, y && y.p95_ms, true)}${change(x && x.error_pct, y && y.error_pct, true)}${change(x && x.throughput, y && y.throughput, false)}</tr>`;
+  });
+  html += "</tbody></table></div>";
+  if (!keys.length) html = '<div class="muted">One of these runs has no recorded results to compare.</div>';
+  $("compare").innerHTML = html; $("compare").classList.remove("hidden"); $("compare").scrollIntoView({ behavior: "smooth", block: "nearest" });
+};
 
 async function poll() {
   clearTimeout(state.timer);
@@ -454,7 +838,7 @@ async function poll() {
     $("grafanaTop").classList.remove("hidden"); $("grafanaTop").href = (state.config.grafana_url || `${location.protocol}//${location.hostname}:3004`);
     if (state.runId) {
       const run = await api(`/api/runs/${state.runId}`);
-      renderRun(run); await pullLog(run);
+      renderRun(run); await pullLog(run); await pullLive(run);
       if (run.status === "running") delay = 1500;
     }
     updateRunButtons();
