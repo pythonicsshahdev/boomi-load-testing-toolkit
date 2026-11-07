@@ -493,7 +493,7 @@ A scrape job with zero discovered targets does not appear in Prometheus's `/api/
 
 ### 9.4 Histogram limits
 
-Percentiles are bucket estimates, so their resolution is the bucket spacing. With 1 ms to 10 s buckets, fast APIs resolve well. Baselines saved before 2026-10-25 used coarse 50 ms-and-up buckets and should be re-saved. Averages and p99 were trustworthy at any bucket setting.
+Percentiles are bucket estimates, so their resolution is the bucket spacing. With 1 ms to 10 s buckets, fast APIs resolve well. Baselines saved before 2026-10-25 used coarse 50 ms-and-up buckets and should be re-saved. The bundled sample baseline `rest-paced` was re-recorded on 2026-11-07 for that reason; the `boomi-*` baselines were recorded against the author's own Atom and still hold the older values. Averages and p99 were trustworthy at any bucket setting.
 
 ---
 
@@ -629,7 +629,7 @@ A finished run's `ended_at` is taken from the modification time of its summary f
 
 **Live run view.** The same curve with the executed part filled in (blue while running; green passed; amber for stop rule, stopped or lost; rose for failure) and an orange "now" marker with a pulse. Live tiles: throughput in TPS (with the phase's target and the requests-per-second figure; profiles written in requests per second show requests per second first), average and slowest-5% (p95) latency, error rate, active threads. A progress bar and the current step. Numbers lag real time by a few seconds because Prometheus scrapes every 5 s.
 
-**Outcome.** A plain-words banner, then tabs: Results (per phase and endpoint: samples, average, median, p90, p95, p99, errors, per-second rate, with "generator busy" flagged), Baseline check, Log. Failure lists show the top JMeter failure messages.
+**Outcome.** A plain-words banner, then tabs (these always describe the latest run shown, not the profile currently selected in the list; the Baseline check tab names that run's profile when it has no baseline block): Results (per phase and endpoint: samples, average, median, p90, p95, p99, errors, per-second rate, with "generator busy" flagged), Baseline check, Log. Failure lists show the top JMeter failure messages.
 
 **Notes, export, report.** A note (up to 500 characters) per run. Export CSV of the results table. Download report: a single self-contained HTML page with the curve, results, baseline verdict and note.
 
@@ -1023,7 +1023,7 @@ Errors are `{"error": "..."}` with a status code (400, 401, 403, 404, 409, 413, 
 | `rest-cam-key-query-sample.yaml` | API key in the query string |
 | `rest-cam-signature-sample.yaml` | API key plus signature |
 
-Baselines committed in `baselines/`: `boomi-local-customers`, `boomi-phased`, `boomi-phased-tps`, `rest-paced`.
+Baselines committed in `baselines/`: `boomi-local-customers`, `boomi-phased`, `boomi-phased-tps`, `rest-paced`. Only `rest-paced` (used by `rest-paced-regression.yaml`, which runs against the bundled REST target) can be exercised without the author's Atom. To try the regression check: run `./ramp.sh profiles/rest-paced-regression.yaml` and read the "Regression check vs baseline" table at the end; a regression exits with code 4.
 
 ## Appendix G. Glossary
 
