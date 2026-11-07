@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -662,3 +663,12 @@ def test_load_profile_rejects_a_folder_and_broken_yaml(tmp_path, capsys):
     with pytest.raises(SystemExit):
         ramp.load_profile(str(bad))
     assert "Could not read" in capsys.readouterr().err
+
+
+def test_format_try_result_is_readable_on_a_terminal_and_full_when_piped():
+    result = {"ok": True, "status": 200, "body": "x" * 500, "message": "GET /a returned HTTP 200 in 4 ms"}
+    piped = ramp.format_try_result(result, readable=False)
+    assert "\n" not in piped and json.loads(piped)["body"] == "x" * 500
+    shown = ramp.format_try_result(result, readable=True)
+    assert shown.startswith("{\n  \"ok\": true") and json.loads(shown)["body"] == "x" * 200 + " ..."
+    assert ramp.format_try_result({"ok": False, "message": "no"}, readable=True).count("\n") >= 2

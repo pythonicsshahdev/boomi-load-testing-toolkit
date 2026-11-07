@@ -557,7 +557,7 @@ Baseline file `baselines/<name>.json`: `run_id`, `saved_at`, `steps` (instances 
 
 ### 10.7 The OAuth pre-check and the one-request test
 
-Both run a small shell script with `curl` inside a `jmeter` container (`docker-compose run --rm -T --no-deps --entrypoint sh jmeter -c ...`), passing profile values as `-e` environment variables and reading secrets from the container's own environment, so secrets never appear on a command line. The one-request test builds the URL, applies the profile's auth (including fetching an OAuth token, computing a signature, or appending the query-string key), sends the first request and returns JSON: `ok`, `status`, `seconds`, the first 1,200 characters of the body, `url`, `request`, `auth`, `message`. It declines HTTP profiles whose first request uses a chained value, and database profiles.
+Both run a small shell script with `curl` inside a `jmeter` container (`docker-compose run --rm -T --no-deps --entrypoint sh jmeter -c ...`), passing profile values as `-e` environment variables and reading secrets from the container's own environment, so secrets never appear on a command line. The one-request test builds the URL, applies the profile's auth (including fetching an OAuth token, computing a signature, or appending the query-string key), sends the first request and returns JSON: `ok`, `status`, `seconds`, the first 1,200 characters of the body, `url`, `request`, `auth`, `message`. On a terminal the JSON is indented and the body is shown cut to 200 characters so the answer fits on screen; when the output is piped (as the console does) it is one full JSON line. It declines HTTP profiles whose first request uses a chained value, and database profiles.
 
 ### 10.8 Confirmation gate
 

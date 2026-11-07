@@ -1182,6 +1182,17 @@ def try_first_request(profile):
                        + (f" in {int(seconds * 1000)} ms" if seconds is not None else "")}
 
 
+def format_try_result(result, readable):
+    """JSON for the one-request test. On a terminal (readable=True) it is indented and the response body is cut
+    to 200 characters so the answer fits on screen; piped output stays one full JSON line for the console."""
+    if not readable:
+        return json.dumps(result)
+    shown = dict(result)
+    if len(shown.get("body") or "") > 200:
+        shown["body"] = shown["body"][:200] + " ..."
+    return json.dumps(shown, indent=2)
+
+
 def launch_instance(test_plan, run_id, step_id, idx, threads, duration, rps_per_min=None):
     """Launches one JMeter instance in the background. Returns the Popen handle."""
     container_name = derive_instance_name(run_id, step_id, idx)
@@ -1445,7 +1456,7 @@ def main():
 
     if try_request:
         result = try_first_request(profile)
-        print(json.dumps(result))
+        print(format_try_result(result, sys.stdout.isatty()))
         sys.exit(0 if result["ok"] else 1)
 
     if validate_only:
