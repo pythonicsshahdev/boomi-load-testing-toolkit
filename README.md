@@ -271,7 +271,7 @@ skills/                 Claude Code skill for this toolkit
 ## Documentation
 
 - [Usage guide](docs/usage-guide.md): step-by-step setup, running tests, profiles, Grafana.
-- [Technical guide](docs/technical-guide.md): architecture, design decisions and the pitfalls found while building it.
+- [Technical guide](docs/technical-guide.md): the complete technical reference. Architecture, every profile field and rule, authentication, the orchestrator's internals, the console and its API, the dashboard, images, operations, security, testing, every pitfall found, and what is not built.
 - [Operations notes](docs/operations.md): authoring test plans, credentials, and operational gotchas.
 - [Latency-by-hop page](docs/examples/boomi-latency-by-hop.html): example results from a Boomi API run.
 - [Design notes](docs/design/): the original specs and implementation plans.
