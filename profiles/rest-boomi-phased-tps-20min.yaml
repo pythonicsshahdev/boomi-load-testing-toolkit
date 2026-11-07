@@ -16,7 +16,7 @@ regression:
   min_p95_delta_ms: 25
 target:
   protocol: http
-  host: host.docker.internal
+  host: host.docker.internal   # this machine, as seen from inside the container (never localhost)
   port: 8078
   auth: api_key
 requests:

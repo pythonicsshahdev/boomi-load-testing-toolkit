@@ -11,7 +11,7 @@ stop_rule:
   max_avg_response_ms: 3000
 target:
   protocol: http
-  host: oauth-target
+  host: oauth-target   # the bundled auth sample: a Docker container, reachable by this name only inside the Docker network
   port: 8000
   auth: api_key
   api_key_in: query                    # header (default) or query

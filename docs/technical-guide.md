@@ -275,7 +275,7 @@ Each step is a mapping:
 | Key | Rule |
 |---|---|
 | `protocol` | `http` (default) or `https`. |
-| `host` | required. Give a bare hostname (the form builder warns on a scheme or path). |
+| `host` | required. Give a bare hostname (the form builder warns on a scheme or path). It is resolved from inside the JMeter container, not from the user's machine: `rest-target`, `graphql-target`, `oauth-target` and `postgres-target` are the bundled sample containers (Docker resolves service names only inside the Compose network); `host.docker.internal` is Docker's name for the machine running Docker (a local Atom or an SSH tunnel); a real hostname works as usual for anything reachable over the network. `localhost` never works, because inside the container it is the container itself. |
 | `port` | integer 1 to 65535, optional. |
 | `auth` | one of `none`, `basic`, `api_key`, `api_key_signature`, `bearer`, `oauth2_client_credentials`. Default `none`. Details in section 7. |
 

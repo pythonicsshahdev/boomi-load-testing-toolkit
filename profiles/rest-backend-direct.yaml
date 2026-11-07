@@ -11,7 +11,7 @@ stop_rule:
   max_avg_response_ms: 3000
 target:
   protocol: http
-  host: host.docker.internal
+  host: host.docker.internal   # this machine, as seen from inside the container (never localhost)
   port: 4005
   auth: none
 requests:

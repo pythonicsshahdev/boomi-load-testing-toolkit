@@ -149,6 +149,19 @@ Example profiles are in `profiles/`, including a Boomi gateway template (`rest-b
 
 `rps` and `tps` are caps, not guarantees. If the thread count and think time can't reach the target, the achieved rate lands below it. Add threads if the summary's `Thrpt` falls short.
 
+### Which host do I use?
+
+The `host` is looked up from **inside the JMeter container**, not from your laptop. That is why some profiles use names that are not real internet hostnames.
+
+| What you are testing | `host` value | Why |
+|---|---|---|
+| The bundled samples | `rest-target`, `graphql-target`, `oauth-target` or `postgres-target` | These are Docker containers started by the toolkit. Docker lets containers on the same network reach each other by name, so the names work only inside that network. |
+| Something running on your own machine (a local Atom, a tunnel) | `host.docker.internal` | A name Docker provides for "the machine running Docker". |
+| A public or VPN-reachable API, gateway or Cloud API Management | its real hostname, for example `api.mycompany.com` | The container reaches it over the network like any other client. |
+| Anything, with `localhost` | do not use | Inside the container, `localhost` is the container itself, so it never reaches your machine. |
+
+Use a bare name with no `https://` and no path. The scheme and port are separate settings (`protocol`, `port`).
+
 ## Authentication
 
 Set `target.auth` in the profile. Secrets are never written in a profile: it names the `.env` variable that holds them, and the JMeter container reads them from the environment.

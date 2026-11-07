@@ -6,7 +6,7 @@ stop_rule:
   max_avg_response_ms: 3000
 target:
   protocol: http
-  host: rest-target
+  host: rest-target   # the bundled sample API: a Docker container, reachable by this name only inside the Docker network
   port: 4005
   auth: none
 requests:
