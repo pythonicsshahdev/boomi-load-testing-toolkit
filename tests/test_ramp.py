@@ -641,3 +641,24 @@ def test_launch_keeps_request_urls_out_of_the_results_file(monkeypatch):
     monkeypatch.setattr(ramp.subprocess, "Popen", lambda cmd, **k: seen.setdefault("cmd", cmd))
     ramp.launch_instance("rest/ramp.jmx", "20260101-000000", "step-01", 1, 2, 10)
     assert "-Jjmeter.save.saveservice.url=false" in seen["cmd"]
+
+
+# --- friendly errors for a missing or unreadable profile ----------------------------------------------
+
+def test_load_profile_missing_file_exits_with_a_plain_message(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        ramp.load_profile(str(tmp_path / "my-api.yaml"))
+    assert e.value.code == 1
+    err = capsys.readouterr().err
+    assert "Profile not found" in err and "profiles/" in err and "Traceback" not in err
+
+
+def test_load_profile_rejects_a_folder_and_broken_yaml(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        ramp.load_profile(str(tmp_path))
+    assert "is a folder" in capsys.readouterr().err
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("steps: [unclosed\n  - nope: : :\n")
+    with pytest.raises(SystemExit):
+        ramp.load_profile(str(bad))
+    assert "Could not read" in capsys.readouterr().err

@@ -305,8 +305,24 @@ def print_slow_requests_table(rows, total_requests):
 
 
 def load_profile(path):
-    with open(path) as f:
-        return yaml.safe_load(f)
+    """Reads a profile, exiting with a plain message (not a traceback) if it is missing or is not valid YAML."""
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        available = sorted(p.name for p in (REPO_ROOT / "profiles").glob("*.yaml"))
+        print(f"Profile not found: {path}", file=sys.stderr)
+        print("Profiles are YAML files in the profiles/ folder. Write one there (copy an example, or use the form builder "
+              "or the console), then pass its path.", file=sys.stderr)
+        if available:
+            print("Examples to start from: " + ", ".join(available[:5]) + (", ..." if len(available) > 5 else ""), file=sys.stderr)
+        sys.exit(1)
+    except IsADirectoryError:
+        print(f"{path} is a folder, not a profile file. Pass the path of a .yaml file in profiles/.", file=sys.stderr)
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print(f"Could not read {path} as YAML: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def validate_profile(profile):
