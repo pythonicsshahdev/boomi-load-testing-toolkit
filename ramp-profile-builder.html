@@ -115,7 +115,27 @@
     <option value="none">None</option>
     <option value="basic">Basic (from .env BASIC_AUTH_USER / BASIC_AUTH_PASS)</option>
     <option value="api_key">API key header (from .env API_KEY)</option>
+    <option value="bearer">Bearer token (from .env BOOMI_TEST_TARGET_BEARER_TOKEN)</option>
+    <option value="oauth2_client_credentials">OAuth 2.0 client credentials (client id/secret from .env)</option>
   </select>
+  <div id="oauthFields" hidden>
+    <label>Token URL</label>
+    <input type="text" id="oTokenUrl" placeholder="https://your-idp.example.com/oauth2/default/v1/token">
+    <div class="row">
+      <div>
+        <label>Scope <small>(optional)</small></label>
+        <input type="text" id="oScope" placeholder="loadtest.read">
+      </div>
+      <div>
+        <label>Client authentication</label>
+        <select id="oClientAuth">
+          <option value="basic">Basic header (client_secret_basic)</option>
+          <option value="post">Form fields (client_secret_post)</option>
+        </select>
+      </div>
+    </div>
+    <p class="lede">Put <code>BOOMI_TEST_OAUTH_CLIENT_ID</code> and <code>BOOMI_TEST_OAUTH_CLIENT_SECRET</code> in <code>.env</code>. They are never written to the profile. The token is fetched before the load starts and refreshed before it expires.</p>
+  </div>
   <div id="requests"></div>
   <button type="button" onclick="addRequest()">+ Add request</button>
 </fieldset>
@@ -218,7 +238,8 @@ function collect() {
     maxAvgResponse: val('maxAvgResponse'),
     thinkTime: val('thinkTime'),
     regression: { name: val('rgName'), p95: val('rgP95'), err: val('rgErr'), delta: val('rgDelta') },
-    target: { protocol: val('tProtocol'), host: val('tHost'), port: val('tPort'), auth: val('tAuth') },
+    target: { protocol: val('tProtocol'), host: val('tHost'), port: val('tPort'), auth: val('tAuth'),
+               tokenUrl: val('oTokenUrl'), scope: val('oScope'), clientAuth: val('oClientAuth') },
     requests: [...document.querySelectorAll('.req-row')].map(row => {
       const g = sel => row.querySelector(sel).value.trim();
       return { el: row, name: g('.r-name'), method: g('.r-method'), path: g('.r-path'),
@@ -255,6 +276,7 @@ function validate(p) {
       .forEach(([id, v, label]) => { if (v !== '' && !(Number(v) >= 0)) err(`${label} must be a non-negative number (or blank).`, byId(id)); });
   }
 
+  if (p.target.auth === 'oauth2_client_credentials' && !/^https?:\/\/[^\s\/]+/.test(p.target.tokenUrl)) err('OAuth token URL must be a full http(s) URL.', byId('oTokenUrl'));
   if (!p.target.host) err('Target host is required.', byId('tHost'));
   if (!(isPosInt(p.target.port) && Number(p.target.port) <= 65535)) err('Target port must be an integer 1-65535.', byId('tPort'));
   if (/^https?:\/\//i.test(p.target.host) || p.target.host.includes('/')) err('Target host should be a bare hostname (no http:// or path) -- protocol and port are separate fields.', byId('tHost'));
@@ -307,6 +329,11 @@ function toYaml(p) {
   yaml += `  host: ${escapeYamlScalar(p.target.host)}\n`;
   yaml += `  port: ${p.target.port}\n`;
   yaml += `  auth: ${p.target.auth}\n`;
+  if (p.target.auth === 'oauth2_client_credentials') {
+    yaml += `  oauth:\n    token_url: ${escapeYamlScalar(p.target.tokenUrl)}\n`;
+    if (p.target.scope) yaml += `    scope: ${escapeYamlScalar(p.target.scope)}\n`;
+    if (p.target.clientAuth !== 'basic') yaml += `    client_auth: ${p.target.clientAuth}\n`;
+  }
   yaml += `requests:\n`;
   p.requests.forEach(r => {
     yaml += `  - name: ${JSON.stringify(r.name)}\n`;
@@ -377,6 +404,7 @@ function downloadYaml() {
 }
 
 document.addEventListener('input', render);
+document.addEventListener('change', e => { if (e.target.id === 'tAuth') document.getElementById('oauthFields').hidden = e.target.value !== 'oauth2_client_credentials'; });
 document.addEventListener('change', e => {
   if (e.target.classList.contains('r-method')) {
     const row = e.target.closest('.req-row');

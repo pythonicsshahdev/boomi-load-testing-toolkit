@@ -25,6 +25,9 @@ services:
     environment:
       BOOMI_TEST_DB_USER: ${BOOMI_TEST_DB_USER:-loadtest}
       BOOMI_TEST_DB_PASSWORD: ${BOOMI_TEST_DB_PASSWORD:-loadtest}
+      # Login for the bundled oauth-target sample (profiles/rest-oauth-sample.yaml). Public demo values.
+      BOOMI_TEST_OAUTH_STUB_CLIENT_ID: loadtest-client
+      BOOMI_TEST_OAUTH_STUB_CLIENT_SECRET: loadtest-secret
     # Docker Desktop provides host.docker.internal itself; on a Linux host this
     # maps it to the host so profiles that target "the machine running the stack" work there too.
     extra_hosts:
@@ -57,6 +60,9 @@ services:
     environment:
       BOOMI_TEST_DB_USER: ${BOOMI_TEST_DB_USER:-loadtest}
       BOOMI_TEST_DB_PASSWORD: ${BOOMI_TEST_DB_PASSWORD:-loadtest}
+      # Login for the bundled oauth-target sample (profiles/rest-oauth-sample.yaml). Public demo values.
+      BOOMI_TEST_OAUTH_STUB_CLIENT_ID: loadtest-client
+      BOOMI_TEST_OAUTH_STUB_CLIENT_SECRET: loadtest-secret
     # Docker Desktop provides host.docker.internal itself; on a Linux host this
     # maps it to the host so profiles that target "the machine running the stack" work there too.
     extra_hosts:
@@ -127,6 +133,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+  oauth-target:
+    build:
+      context: ./docker/sample-services/oauth-stub
+    image: boomi-loadtest-oauth-target:dev
+    networks:
+      - perf-test-net
+    ports:
+      - "127.0.0.1:8012:8000"
   graphql-target:
     build:
       context: ./docker/sample-services/graphql-strawberry

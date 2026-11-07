@@ -1,5 +1,9 @@
+import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ramp
@@ -469,3 +473,92 @@ def test_jdbc_login_variable_names_default_and_are_validated():
         target = {"protocol": "jdbc", "driver": "postgresql", "host": "db", "database": "app", "password_env": bad}
         errors = ramp.validate_profile(_jdbc_profile(target=target))
         assert any("password_env" in e for e in errors), bad
+
+
+# --- bearer and OAuth2 client-credentials auth ---------------------------------------------------
+
+def _oauth_profile(**oauth):
+    profile = _endpoint_profile()
+    profile["target"]["auth"] = "oauth2_client_credentials"
+    profile["target"]["oauth"] = {"token_url": "https://idp.example.com/oauth2/v1/token", **oauth}
+    return profile
+
+
+def test_validate_oauth_accepts_a_full_block():
+    profile = _oauth_profile(scope="loadtest.read", audience="api://x", client_auth="post", refresh_skew_sec=20,
+                             client_id_env="MY_ID", client_secret_env="MY_SECRET")
+    assert ramp.validate_profile(profile) == []
+
+
+def test_validate_oauth_rejects_bad_settings():
+    profile = _oauth_profile(client_auth="digest", refresh_skew_sec=-1, client_secret_env="not-an-env-name", bogus=1)
+    profile["target"]["oauth"]["token_url"] = "idp.example.com/token"
+    errors = "\n".join(ramp.validate_profile(profile))
+    assert "token_url must be a full http(s) URL" in errors
+    assert "client_auth must be one of" in errors
+    assert "refresh_skew_sec must be a non-negative integer" in errors
+    assert "client_secret_env must be the NAME of an environment variable" in errors
+    assert "bogus is not a known setting" in errors
+
+
+def test_validate_oauth_needs_its_block_and_only_with_that_auth():
+    profile = _endpoint_profile()
+    profile["target"]["auth"] = "oauth2_client_credentials"
+    assert any("needs a target.oauth block" in e for e in ramp.validate_profile(profile))
+    profile = _endpoint_profile()
+    profile["target"]["oauth"] = {"token_url": "https://idp.example.com/token"}
+    assert any("only applies with auth: oauth2_client_credentials" in e for e in ramp.validate_profile(profile))
+
+
+def test_validate_bearer_token_env_must_be_a_name():
+    profile = _endpoint_profile()
+    profile["target"]["auth"] = "bearer"
+    assert ramp.validate_profile(profile) == []
+    profile["target"]["token_env"] = "eyJhbGciOi.real.token"
+    assert any("token_env must be the NAME" in e for e in ramp.validate_profile(profile))
+
+
+def test_generated_plan_bearer_reads_token_from_env():
+    profile = _endpoint_profile()
+    profile["target"]["auth"] = "bearer"
+    xml = ramp.build_plan_from_profile(profile)
+    assert 'Bearer ${__groovy(System.getenv("BOOMI_TEST_TARGET_BEARER_TOKEN"))}' in xml
+    profile["target"]["token_env"] = "MY_TOKEN"
+    assert 'System.getenv("MY_TOKEN")' in ramp.build_plan_from_profile(profile)
+
+
+def test_generated_plan_oauth_adds_refreshing_preprocessor_and_bearer_header():
+    xml = ramp.build_plan_from_profile(_oauth_profile(scope="a b", refresh_skew_sec=15))
+    root = ET.fromstring(xml)
+    pre = [e for e in root.iter("JSR223PreProcessor")]
+    assert len(pre) == 1 and pre[0].get("testname") == "OAuth token"
+    script = next(e.text for e in pre[0] if e.get("name") == "script")
+    assert "final String TOKEN_URL = 'https://idp.example.com/oauth2/v1/token'" in script
+    assert "final String SCOPE = 'a b'" in script
+    assert "final long SKEW_MS = 15 * 1000L" in script
+    assert "BOOMI_TEST_OAUTH_CLIENT_SECRET" in script and "__" not in script.replace("__P", "")
+    assert "Bearer ${__P(oauth_token)}" in xml
+
+
+def test_groovy_str_escapes_quotes_and_backslashes():
+    assert ramp._groovy_str("it's") == "'it\\'s'"
+    assert ramp._groovy_str("a\\b") == "'a\\\\b'"
+    assert ramp._groovy_str("${x}") == "'${x}'"
+
+
+def _completed(stdout="", stderr="", returncode=0):
+    return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=stderr)
+
+
+@pytest.mark.parametrize("stdout,stderr,rc,ok,fragment", [
+    ('HTTP 200\n{"access_token":"abc","expires_in":3600}', "", 0, True, "token lifetime 3600s"),
+    ('HTTP 200\n{"access_token":"abc","expires_in":5}', "", 0, True, "WARNING: lifetime is not longer"),
+    ('HTTP 401\n{"error":"invalid_client"}', "", 0, False, "returned HTTP 401"),
+    ("HTTP 200\n{}", "", 0, False, "no access_token"),
+    ("MISSING_ENV", "", 3, False, "client id/secret are not set"),
+    ("", "curl: (7) Failed to connect", 4, False, "host.docker.internal"),
+])
+def test_preflight_oauth_messages(monkeypatch, stdout, stderr, rc, ok, fragment):
+    monkeypatch.setattr(ramp.subprocess, "run", lambda *a, **k: _completed(stdout, stderr, rc))
+    result_ok, message = ramp.preflight_oauth(_oauth_profile(refresh_skew_sec=30))
+    assert result_ok is ok and fragment in message

@@ -204,6 +204,8 @@ requests:
 
 Optional per request: `body` (raw JSON string; adds a JSON Content-Type header). Optional on target: `api_key_header` (default `x-api-key`). See `profiles/rest-endpoints.yaml` for a working example.
 
+**Authentication.** `target.auth` can be `none`, `basic`, `api_key`, `bearer` or `oauth2_client_credentials`. Secrets always come from `.env`, never from the profile. The OAuth settings (token URL, scope, client authentication, refresh timing), the Okta setup notes and a sample you can run without an identity provider (`profiles/rest-oauth-sample.yaml`) are in the README under "Authentication".
+
 #### Pacing: think time and a target request rate
 
 Both apply to generated plans only (profiles with `target`/`requests`).

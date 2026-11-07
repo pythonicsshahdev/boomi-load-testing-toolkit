@@ -2,7 +2,7 @@
 
 Load testing for APIs published through Boomi, built on JMeter, Prometheus and Grafana in Docker Compose. You describe a test as a short YAML profile (or build one in the included HTML builder), and the toolkit generates the JMeter plan, runs it in containers, and reports per-endpoint latency, throughput and errors. Results land in a Grafana dashboard that keeps history, so runs can be compared over time. A saved baseline turns a performance regression into a non-zero exit code for CI.
 
-Nothing in the engine is Boomi-specific. It was built to test APIs fronted by Boomi API Management (API key or basic auth), but it works against any HTTP API: REST, GraphQL or SOAP.
+Nothing in the engine is Boomi-specific. It was built to test APIs fronted by Boomi API Management (API key, basic auth, bearer token or OAuth 2.0 client credentials), but it works against any HTTP API: REST, GraphQL or SOAP.
 
 ## What it does
 
@@ -39,6 +39,7 @@ ramp.py / run-test.sh
 | `prometheus` | Scrapes every JMeter instance | 9090 |
 | `grafana` | Dashboard and datasource pre-provisioned | 3004 (`admin`/`admin`) |
 | `rest-target`, `graphql-target` | Bundled sample APIs for trying the stack | 8010, 8011 |
+| `oauth-target` | Sample OAuth 2.0 API with 30 s tokens, started on demand | 8012 |
 
 All ports bind to `127.0.0.1`. SOAP samples point at a public calculator service.
 
@@ -137,6 +138,53 @@ steps:
 Example profiles are in `profiles/`, including a Boomi gateway template (`rest-boomi-gateway.example.yaml`), phased TPS runs, a spike pattern and slow-request detection.
 
 `rps` and `tps` are caps, not guarantees. If the thread count and think time can't reach the target, the achieved rate lands below it. Add threads if the summary's `Thrpt` falls short.
+
+## Authentication
+
+Set `target.auth` in the profile. Secrets are never written in a profile: it names the `.env` variable that holds them, and the JMeter container reads them from the environment.
+
+| `auth` | What it sends | `.env` variables |
+|---|---|---|
+| `none` | nothing | none |
+| `basic` | HTTP Basic | `BOOMI_TEST_TARGET_BASIC_AUTH_USER`, `BOOMI_TEST_TARGET_BASIC_AUTH_PASS` |
+| `api_key` | an API key header (`x-api-key` by default, change it with `api_key_header`) | `BOOMI_TEST_TARGET_API_KEY` |
+| `bearer` | `Authorization: Bearer <token>` with a fixed token | `BOOMI_TEST_TARGET_BEARER_TOKEN` (or name another with `token_env`) |
+| `oauth2_client_credentials` | a token fetched from your identity provider, refreshed before it expires | `BOOMI_TEST_OAUTH_CLIENT_ID`, `BOOMI_TEST_OAUTH_CLIENT_SECRET` |
+
+### OAuth 2.0 client credentials
+
+```yaml
+target:
+  protocol: https
+  host: api.example.com
+  port: 443
+  auth: oauth2_client_credentials
+  oauth:
+    token_url: https://your-idp.example.com/oauth2/default/v1/token
+    scope: loadtest.read          # optional
+    audience: api://my-api        # optional (Auth0 and similar)
+    client_auth: basic            # basic (client_secret_basic, default) or post (client_secret_post)
+    refresh_skew_sec: 30          # fetch a new token this long before the old one expires
+    client_id_env: MY_CLIENT_ID          # optional: use different .env variable names
+    client_secret_env: MY_CLIENT_SECRET
+```
+
+- **Before any load starts**, `ramp.sh` fetches one token from inside a JMeter container. A wrong secret, a bad scope, a missing `.env` entry or an unreachable token URL stops the run with a message that says what to fix (exit code 1).
+- **During the run**, each JMeter instance fetches its own token on its first request and refreshes it `refresh_skew_sec` before it expires, so a long run does not fail halfway with 401s. A failed refresh is retried every 5 seconds, not on every request.
+- **Token requests are not counted** in the load-test metrics, so they don't skew latency or throughput.
+- **Token URL reachability:** the URL is called from inside the container. For something on your own machine use `host.docker.internal`, never `localhost`.
+- **Rate limits:** each parallel instance asks for its own token. Identity providers often rate-limit the token endpoint, so use a non-production tenant and keep token lifetimes at a few minutes or more.
+- **Okta:** create an API Services app (client credentials grant), and use a custom authorization server (the built-in `default` one works) with a scope and an access-policy rule that allows the client credentials grant. The token URL is `https://<your-org>.okta.com/oauth2/<authServerId>/v1/token`. Okta's organization authorization server does not issue tokens for your own APIs.
+
+To try it without an identity provider, start the bundled sample and run its profile. Its tokens last 30 seconds, so the 90 second run refreshes the token several times, and `/stats` shows how many tokens were issued and how many requests were rejected:
+
+```bash
+docker-compose up -d oauth-target
+./ramp.sh profiles/rest-oauth-sample.yaml
+curl -s localhost:8012/stats
+```
+
+Not covered yet: password and authorization-code grants, private-key JWT client authentication, mutual TLS, and API-key-as-query-parameter or signature schemes.
 
 ### Exit codes
 

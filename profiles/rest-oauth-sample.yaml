@@ -1,0 +1,32 @@
+# OAuth 2.0 client-credentials against the bundled oauth-target sample. Its tokens last 30 s, so this
+# 90 s run refreshes the token twice. Start the sample with: docker-compose up -d oauth-target
+#   ./ramp.sh profiles/rest-oauth-sample.yaml
+#   curl -s localhost:8012/stats      # tokens_issued should be 3 or more, api_rejected 0
+test_plan: rest/ramp.jmx
+step_duration_sec: 90
+warmup_sec: 5
+think_time_ms: 100
+stop_rule:
+  max_error_rate_pct: 5
+  max_avg_response_ms: 3000
+target:
+  protocol: http
+  host: oauth-target
+  port: 8000
+  auth: oauth2_client_credentials
+  oauth:
+    token_url: http://oauth-target:8000/token
+    client_auth: basic                     # basic (client_secret_basic) or post (client_secret_post)
+    refresh_skew_sec: 10                   # fetch a new token this long before the old one expires
+    client_id_env: BOOMI_TEST_OAUTH_STUB_CLIENT_ID
+    client_secret_env: BOOMI_TEST_OAUTH_STUB_CLIENT_SECRET
+requests:
+  - name: List customers
+    method: GET
+    path: /customers
+    extract: id=$[0].customer_id
+  - name: Get customer
+    method: GET
+    path: /customers/${id}
+steps:
+  - { instances: 1, threads: 5 }

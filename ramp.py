@@ -365,7 +365,12 @@ def validate_profile(profile):
     return errors
 
 
-VALID_AUTH = ("none", "basic", "api_key")
+VALID_AUTH = ("none", "basic", "api_key", "bearer", "oauth2_client_credentials")
+DEFAULT_BEARER_TOKEN_ENV = "BOOMI_TEST_TARGET_BEARER_TOKEN"
+DEFAULT_OAUTH_ID_ENV = "BOOMI_TEST_OAUTH_CLIENT_ID"
+DEFAULT_OAUTH_SECRET_ENV = "BOOMI_TEST_OAUTH_CLIENT_SECRET"
+DEFAULT_OAUTH_REFRESH_SKEW_SEC = 30
+OAUTH_CLIENT_AUTH = ("basic", "post")
 # Database load tests (target.protocol: jdbc). The driver jar must be in the jmeter image (docker/jmeter/Dockerfile).
 JDBC_DRIVERS = {
     "postgresql": {"class": "org.postgresql.Driver", "url": "jdbc:postgresql://{host}:{port}/{database}", "port": 5432},
@@ -377,6 +382,49 @@ DEFAULT_DB_USER_ENV = "BOOMI_TEST_DB_USER"
 DEFAULT_DB_PASSWORD_ENV = "BOOMI_TEST_DB_PASSWORD"
 VALID_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 EXTRACT_RE = re.compile(r"^[A-Za-z_]\w*=\S.*$")
+
+
+def _validate_auth(target):
+    """Rules for the bearer and oauth2_client_credentials auth types. Secrets never live in the
+    profile: it names the .env variables that hold them."""
+    errors = []
+    auth = target.get("auth", "none")
+    oauth = target.get("oauth")
+    if oauth is not None and auth != "oauth2_client_credentials":
+        errors.append("target.oauth only applies with auth: oauth2_client_credentials")
+    if "token_env" in target and auth != "bearer":
+        errors.append("target.token_env only applies with auth: bearer")
+    if auth == "bearer" and "token_env" in target and not _is_env_name(target["token_env"]):
+        errors.append(f"target.token_env must be the NAME of an environment variable in .env "
+                      f"(capital letters, digits, underscores), not the token itself; got {target['token_env']!r}")
+    if auth != "oauth2_client_credentials":
+        return errors
+    if not isinstance(oauth, dict):
+        return errors + ["auth: oauth2_client_credentials needs a target.oauth block with at least token_url"]
+    url = oauth.get("token_url")
+    if not isinstance(url, str) or not re.match(r"^https?://[^\s/]+", url):
+        errors.append(f"target.oauth.token_url must be a full http(s) URL, got {url!r}")
+    for key in ("scope", "audience"):
+        if key in oauth and not isinstance(oauth[key], str):
+            errors.append(f"target.oauth.{key} must be a string, got {oauth[key]!r}")
+    if oauth.get("client_auth", "basic") not in OAUTH_CLIENT_AUTH:
+        errors.append(f"target.oauth.client_auth must be one of {list(OAUTH_CLIENT_AUTH)}, got {oauth.get('client_auth')!r}")
+    skew = oauth.get("refresh_skew_sec", DEFAULT_OAUTH_REFRESH_SKEW_SEC)
+    if not isinstance(skew, int) or isinstance(skew, bool) or skew < 0:
+        errors.append(f"target.oauth.refresh_skew_sec must be a non-negative integer, got {skew!r}")
+    for key in ("client_id_env", "client_secret_env"):
+        if key in oauth and not _is_env_name(oauth[key]):
+            errors.append(f"target.oauth.{key} must be the NAME of an environment variable in .env "
+                          f"(capital letters, digits, underscores), not the value itself; got {oauth[key]!r}")
+    known = {"token_url", "scope", "audience", "client_auth", "refresh_skew_sec", "client_id_env", "client_secret_env"}
+    for key in oauth:
+        if key not in known:
+            errors.append(f"target.oauth.{key} is not a known setting (known: {sorted(known)})")
+    return errors
+
+
+def _is_env_name(value):
+    return isinstance(value, str) and bool(ENV_NAME_RE.match(value))
 
 
 def _validate_endpoints(profile):
@@ -409,6 +457,7 @@ def _validate_endpoints(profile):
                 errors.append(f"target.port must be an integer 1-65535, got {port!r}")
             if target.get("auth", "none") not in VALID_AUTH:
                 errors.append(f"target.auth must be one of {list(VALID_AUTH)}, got {target.get('auth')!r}")
+            errors.extend(_validate_auth(target))
 
     requests = profile.get("requests")
     if has_requests:
@@ -690,6 +739,95 @@ def _add_jdbc_elements(thread_group_tree, profile):
         _jdbc_sampler(thread_group_tree, req, profile.get("think_time_ms", 0))
 
 
+def _groovy_str(value):
+    """A Groovy single-quoted literal (no interpolation, so $ and {} are safe)."""
+    return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+OAUTH_SCRIPT = r"""
+// Fetches an OAuth2 client-credentials token and refreshes it before it expires. Runs as a
+// pre-processor, not a sampler, so token requests never appear in the load-test metrics.
+final String TOKEN_URL = __TOKEN_URL__
+final String SCOPE = __SCOPE__
+final String AUDIENCE = __AUDIENCE__
+final String CLIENT_AUTH = __CLIENT_AUTH__
+final String ID_ENV = __ID_ENV__
+final String SECRET_ENV = __SECRET_ENV__
+final long SKEW_MS = __SKEW__ * 1000L
+final long RETRY_BACKOFF_MS = 5000L
+
+long now = System.currentTimeMillis()
+String expiresAt = props.getProperty("oauth_expires_at")
+if (expiresAt != null && now < Long.parseLong(expiresAt) - SKEW_MS) { return }
+
+synchronized (props) {
+    now = System.currentTimeMillis()
+    expiresAt = props.getProperty("oauth_expires_at")
+    if (expiresAt != null && now < Long.parseLong(expiresAt) - SKEW_MS) { return }
+    String retryAfter = props.getProperty("oauth_retry_after")
+    if (retryAfter != null && now < Long.parseLong(retryAfter)) { return }
+    try {
+        String id = System.getenv(ID_ENV)
+        String secret = System.getenv(SECRET_ENV)
+        if (!id || !secret) { throw new IllegalStateException("OAuth client id/secret not set (" + ID_ENV + " / " + SECRET_ENV + ")") }
+        def enc = { String v -> URLEncoder.encode(v, "UTF-8") }
+        String form = "grant_type=client_credentials"
+        if (SCOPE) { form += "&scope=" + enc(SCOPE) }
+        if (AUDIENCE) { form += "&audience=" + enc(AUDIENCE) }
+        def conn = new URL(TOKEN_URL).openConnection()
+        conn.setRequestMethod("POST")
+        conn.setConnectTimeout(10000)
+        conn.setReadTimeout(15000)
+        conn.setDoOutput(true)
+        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+        conn.setRequestProperty("Accept", "application/json")
+        if (CLIENT_AUTH == "post") {
+            form += "&client_id=" + enc(id) + "&client_secret=" + enc(secret)
+        } else {
+            conn.setRequestProperty("Authorization", "Basic " + (id + ":" + secret).bytes.encodeBase64().toString())
+        }
+        conn.outputStream.withWriter("UTF-8") { it << form }
+        int code = conn.responseCode
+        String text = (code < 400 ? conn.inputStream : conn.errorStream)?.getText("UTF-8") ?: ""
+        if (code != 200) { throw new IllegalStateException("token endpoint returned HTTP " + code + ": " + text.take(300)) }
+        def tokenMatch = (text =~ /"access_token"\s*:\s*"([^"]+)"/)
+        if (!tokenMatch.find()) { throw new IllegalStateException("token endpoint returned 200 but no access_token") }
+        def expMatch = (text =~ /"expires_in"\s*:\s*"?(\d+)"?/)
+        long expiresIn = expMatch.find() ? Long.parseLong(expMatch.group(1)) : 300L
+        props.setProperty("oauth_token", tokenMatch.group(1))
+        props.setProperty("oauth_expires_at", String.valueOf(System.currentTimeMillis() + expiresIn * 1000L))
+        props.remove("oauth_retry_after")
+        log.info("OAuth token refreshed, valid for " + expiresIn + "s")
+    } catch (Exception e) {
+        // Back off so a broken token endpoint is not hit by every thread on every request.
+        props.setProperty("oauth_retry_after", String.valueOf(System.currentTimeMillis() + RETRY_BACKOFF_MS))
+        log.error("OAuth token fetch failed: " + e.getMessage())
+    }
+}
+"""
+
+
+def _add_oauth_token_fetcher(thread_group_tree, oauth):
+    script = OAUTH_SCRIPT
+    for key, value in {
+        "__TOKEN_URL__": _groovy_str(oauth["token_url"]),
+        "__SCOPE__": _groovy_str(oauth.get("scope", "")),
+        "__AUDIENCE__": _groovy_str(oauth.get("audience", "")),
+        "__CLIENT_AUTH__": _groovy_str(oauth.get("client_auth", "basic")),
+        "__ID_ENV__": _groovy_str(oauth.get("client_id_env", DEFAULT_OAUTH_ID_ENV)),
+        "__SECRET_ENV__": _groovy_str(oauth.get("client_secret_env", DEFAULT_OAUTH_SECRET_ENV)),
+        "__SKEW__": str(oauth.get("refresh_skew_sec", DEFAULT_OAUTH_REFRESH_SKEW_SEC)),
+    }.items():
+        script = script.replace(key, value)
+    pre = _element(thread_group_tree, "JSR223PreProcessor", "OAuth token",
+                   guiclass="TestBeanGUI", testclass="JSR223PreProcessor")
+    _sp(pre, "scriptLanguage", "groovy")
+    _sp(pre, "parameters", "")
+    _sp(pre, "filename", "")
+    _sp(pre, "cacheKey", "true")
+    _sp(pre, "script", script)
+
+
 def build_plan_from_profile(profile):
     """Returns JMeter plan XML (str) for the profile's target/requests blocks.
     The profile's test_plan acts as the template: its thread group settings
@@ -740,6 +878,12 @@ def build_plan_from_profile(profile):
     if auth == "api_key":
         headers.append((target.get("api_key_header", "x-api-key"),
                         '${__groovy(System.getenv("BOOMI_TEST_TARGET_API_KEY"))}'))
+    if auth == "bearer":
+        token_env = target.get("token_env", DEFAULT_BEARER_TOKEN_ENV)
+        headers.append(("Authorization", 'Bearer ${__groovy(System.getenv("%s"))}' % token_env))
+    if auth == "oauth2_client_credentials":
+        _add_oauth_token_fetcher(thread_group_tree, target["oauth"])
+        headers.append(("Authorization", "Bearer ${__P(oauth_token)}"))
     if any("body" in r for r in profile["requests"]):
         headers.append(("Content-Type", "application/json"))
     if headers:
@@ -802,6 +946,61 @@ def delete_target_file(run_id, step_id, idx):
 def compose_command():
     """The standalone docker-compose binary if present, else the Compose v2 plugin (`docker compose`)."""
     return ["docker-compose"] if shutil.which("docker-compose") else ["docker", "compose"]
+
+
+OAUTH_PREFLIGHT_SCRIPT = r"""
+ID=$(printenv "$ID_ENV"); SECRET=$(printenv "$SECRET_ENV")
+if [ -z "$ID" ] || [ -z "$SECRET" ]; then echo "MISSING_ENV"; exit 3; fi
+set -- -sS -m 15 -o /tmp/oauth.out -w '%{http_code}' -X POST "$TOKEN_URL" -H 'Accept: application/json' --data-urlencode grant_type=client_credentials
+[ -n "$SCOPE" ] && set -- "$@" --data-urlencode "scope=$SCOPE"
+[ -n "$AUDIENCE" ] && set -- "$@" --data-urlencode "audience=$AUDIENCE"
+if [ "$CLIENT_AUTH" = post ]; then set -- "$@" --data-urlencode "client_id=$ID" --data-urlencode "client_secret=$SECRET"; else set -- "$@" -u "$ID:$SECRET"; fi
+CODE=$(curl "$@") || exit 4
+echo "HTTP $CODE"; head -c 400 /tmp/oauth.out
+"""
+
+
+def preflight_oauth(profile):
+    """Fetches one token from inside a JMeter container before any load starts, so a wrong client id/secret,
+    scope or unreachable token URL stops the run with a clear message instead of a wall of 401s.
+    Returns (ok, message)."""
+    target = profile["target"]
+    oauth = target["oauth"]
+    id_env = oauth.get("client_id_env", DEFAULT_OAUTH_ID_ENV)
+    secret_env = oauth.get("client_secret_env", DEFAULT_OAUTH_SECRET_ENV)
+    env = {"TOKEN_URL": oauth["token_url"], "SCOPE": oauth.get("scope", ""), "AUDIENCE": oauth.get("audience", ""),
+           "CLIENT_AUTH": oauth.get("client_auth", "basic"), "ID_ENV": id_env, "SECRET_ENV": secret_env}
+    cmd = [*compose_command(), "run", "--rm", "-T", "--no-deps"]
+    for key, value in env.items():
+        cmd += ["-e", f"{key}={value}"]
+    cmd += ["--entrypoint", "sh", "jmeter", "-c", OAUTH_PREFLIGHT_SCRIPT]
+    try:
+        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=90)
+    except subprocess.TimeoutExpired:
+        return False, "OAuth token check timed out"
+    out = proc.stdout.strip()
+    if "MISSING_ENV" in out:
+        return False, (f"OAuth client id/secret are not set: put {id_env} and {secret_env} in .env "
+                       f"(then re-run; they are read by the JMeter container at start)")
+    if proc.returncode != 0 and not out.startswith("HTTP"):
+        detail = next((l for l in proc.stderr.splitlines() if l.strip().startswith("curl:")), "").strip()
+        return False, (f"Could not reach the token endpoint {oauth['token_url']} from inside the container"
+                       f"{': ' + detail if detail else ''}. A host-machine URL must use host.docker.internal, not localhost.")
+    first, _, body = out.partition("\n")
+    code = first.replace("HTTP", "").strip()
+    if code != "200":
+        return False, (f"Token endpoint {oauth['token_url']} returned HTTP {code}: {body.strip()[:300]}. "
+                       f"Check the client id/secret, scope and token_url.")
+    match = re.search(r'"access_token"\s*:\s*"[^"]+"', body)
+    if not match:
+        return False, "Token endpoint returned HTTP 200 but no access_token (check the token URL and grant type)."
+    exp = re.search(r'"expires_in"\s*:\s*"?(\d+)"?', body)
+    lifetime = f", token lifetime {exp.group(1)}s" if exp else ""
+    skew = oauth.get("refresh_skew_sec", DEFAULT_OAUTH_REFRESH_SKEW_SEC)
+    note = ""
+    if exp and int(exp.group(1)) <= skew:
+        note = f" WARNING: lifetime is not longer than refresh_skew_sec ({skew}s), so every request will refetch the token."
+    return True, f"OAuth token check passed{lifetime}.{note}"
 
 
 def launch_instance(test_plan, run_id, step_id, idx, threads, duration, rps_per_min=None):
@@ -1072,6 +1271,12 @@ def main():
         generated = generate_test_plan(profile, run_id)
         print(f"Generated test plan from profile target/requests: test-plans/{generated}")
         profile = {**profile, "test_plan": generated}
+
+    if profile.get("target", {}).get("auth") == "oauth2_client_credentials":
+        ok, message = preflight_oauth(profile)
+        print(message, file=sys.stdout if ok else sys.stderr, flush=True)
+        if not ok:
+            sys.exit(1)
 
     for warning in short_step_warnings(profile):
         print(f"WARNING: {warning}", file=sys.stderr)
