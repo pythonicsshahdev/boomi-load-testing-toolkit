@@ -160,7 +160,7 @@ The `host` is looked up from **inside the JMeter container**, not from your lapt
 | A public or VPN-reachable API, gateway or Cloud API Management | its real hostname, for example `api.mycompany.com` | The container reaches it over the network like any other client. |
 | Anything, with `localhost` | do not use | Inside the container, `localhost` is the container itself, so it never reaches your machine. |
 
-Use a bare name with no `https://` and no path. The scheme and port are separate settings (`protocol`, `port`).
+Use a bare name with no `https://` and no path. The scheme and port are separate settings (`protocol`, `port`). A profile that still has `<PLACEHOLDER>` text in its host, token URL or request paths fails `--validate` with a message naming the field.
 
 ## Authentication
 

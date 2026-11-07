@@ -256,6 +256,8 @@ A profile is a YAML file in `profiles/`. This section is the complete reference.
 
 `target` and `requests` must appear together or not at all.
 
+A profile that still holds template placeholder text (anything in angle brackets, such as `<GATEWAY-HOST, e.g. api.mycompany.com>` or `<YOUR-API-BASE>`) in `target.host`, `target.oauth.token_url` or a request `path` is rejected by validation with a message naming the field. Request bodies are not checked, because they may legitimately contain XML. The shipped template `rest-boomi-gateway.example.yaml` therefore fails `--validate` until it is filled in, which is intended.
+
 ### 6.2 Steps
 
 Each step is a mapping:

@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ramp
@@ -672,3 +673,33 @@ def test_format_try_result_is_readable_on_a_terminal_and_full_when_piped():
     shown = ramp.format_try_result(result, readable=True)
     assert shown.startswith("{\n  \"ok\": true") and json.loads(shown)["body"] == "x" * 200 + " ..."
     assert ramp.format_try_result({"ok": False, "message": "no"}, readable=True).count("\n") >= 2
+
+
+# --- unfilled template placeholders --------------------------------------------------------------------
+
+def test_validate_rejects_template_placeholders_in_host_paths_and_token_url():
+    profile = _endpoint_profile()
+    profile["target"]["host"] = "<GATEWAY-HOST, e.g. api.mycompany.com>"
+    profile["requests"][0]["path"] = "/ws/rest/<YOUR-API-BASE>/orders"
+    errors = "\n".join(ramp.validate_profile(profile))
+    assert "target.host still has a placeholder (<GATEWAY-HOST, e.g. api.mycompany.com>)" in errors
+    assert "requests[0].path still has a placeholder (<YOUR-API-BASE>)" in errors
+    oauth = _oauth_profile()
+    oauth["target"]["oauth"]["token_url"] = "https://<YOUR-IDP>/oauth2/v1/token"
+    assert any("token_url still has a placeholder" in e for e in ramp.validate_profile(oauth))
+
+
+def test_placeholder_check_ignores_bodies_and_accepts_filled_profiles():
+    profile = _endpoint_profile()
+    profile["requests"].append({"name": "Create", "method": "POST", "path": "/orders", "body": "<order><id>1</id></order>"})
+    assert ramp.validate_profile(profile) == []
+
+
+def test_the_shipped_gateway_template_fails_until_filled_in():
+    template = yaml.safe_load((Path(__file__).resolve().parent.parent / "profiles" / "rest-boomi-gateway.example.yaml").read_text())
+    errors = ramp.validate_profile(template)
+    assert any("target.host still has a placeholder" in e for e in errors)
+    template["target"]["host"] = "api.example.com"
+    for req in template["requests"]:
+        req["path"] = req["path"].replace("<YOUR-API-BASE>", "orders-api")
+    assert ramp.validate_profile(template) == []

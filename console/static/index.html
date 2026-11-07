@@ -852,7 +852,7 @@ function showRunNotice(shownId) {
 /* The selected profile has not been run yet. */
 function showNoRun() {
   $("rBody").classList.add("hidden"); $("rEmpty").classList.remove("hidden");
-  $("rEmpty").textContent = state.selected ? `No runs of ${state.selected} yet. Press Run to start one, or pick an earlier run in History below.` : "Start a run and it appears here with live progress.";
+  $("rEmpty").textContent = state.selected ? `No runs of ${state.selected} in this console yet. Runs started from the command line are not listed here. Press Run to start one, or pick an earlier run in History below.` : "Start a run and it appears here with live progress.";
   $("rTitle").textContent = state.selected ? `Latest run of ${state.selected}` : "Latest run";
   $("rBadge").outerHTML = '<span id="rBadge" class="badge idle">None yet</span>';
   ["stopBtn", "csvBtn", "reportBtn", "rGrafana"].forEach((id) => $(id).classList.add("hidden"));

@@ -375,6 +375,7 @@ def validate_profile(profile):
         v = stop_rule["max_avg_response_ms"]
         if not isinstance(v, (int, float)) or v <= 0:
             errors.append(f"stop_rule.max_avg_response_ms must be a positive number, got {v!r}")
+    errors.extend(_placeholder_errors(profile))
     errors.extend(_validate_endpoints(profile))
     errors.extend(_validate_pacing(profile))
     errors.extend(_validate_regression(profile))
@@ -481,6 +482,27 @@ def _validate_api_key_settings(target, auth):
 
 def _is_env_name(value):
     return isinstance(value, str) and bool(ENV_NAME_RE.match(value))
+
+
+PLACEHOLDER_RE = re.compile(r"<[^<>\n]+>")
+
+
+def _placeholder_errors(profile):
+    """A copied template still holding <PLACEHOLDER> text is not a real profile. Checks only the fields where angle
+    brackets can never be legitimate (host, request paths, token URL); bodies may contain XML."""
+    errors = []
+    target = profile.get("target") if isinstance(profile.get("target"), dict) else {}
+    fields = [("target.host", target.get("host"))]
+    if isinstance(target.get("oauth"), dict):
+        fields.append(("target.oauth.token_url", target["oauth"].get("token_url")))
+    for i, req in enumerate(profile.get("requests") or []):
+        if isinstance(req, dict):
+            fields.append((f"requests[{i}].path", req.get("path")))
+    for where, value in fields:
+        if isinstance(value, str) and PLACEHOLDER_RE.search(value):
+            found = PLACEHOLDER_RE.search(value).group(0)
+            errors.append(f"{where} still has a placeholder ({found}). Replace it with a real value before running.")
+    return errors
 
 
 def _validate_endpoints(profile):
