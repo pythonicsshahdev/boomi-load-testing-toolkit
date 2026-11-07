@@ -1,38 +1,57 @@
-# boomi-loadtest-jmeter
+# 🚀 boomi-loadtest-jmeter
 
-Headless Apache JMeter 5.6.3 with the Prometheus listener already installed, built for the **Boomi Load Testing Toolkit**. Use it to load test any HTTP API (REST, GraphQL, SOAP) or a PostgreSQL database and have live metrics scraped by Prometheus.
+**Headless Apache JMeter with live Prometheus metrics, ready to run.** The load-generating engine of the [Boomi Load Testing Toolkit](https://github.com/pythonicsshahdev/boomi-load-testing-toolkit). Point it at any HTTP API (REST, GraphQL, SOAP) or a PostgreSQL database and watch latency, throughput and errors stream into Prometheus and Grafana.
 
-## What is baked in
+> 💡 Most people never run this image by hand. The toolkit generates a test plan from a short YAML profile, starts this image for you, and reports the results.
 
-- Apache JMeter **5.6.3** on Java 17 (`eclipse-temurin:17-jre-jammy`)
-- [`jmeter-prometheus-plugin`](https://github.com/johrstrom/jmeter-prometheus-plugin) **0.7.1**, configured to serve metrics on `0.0.0.0:9270` (the plugin binds to localhost by default, which makes metrics unreachable from other containers)
-- PostgreSQL JDBC driver **42.7.4** for database load tests
-- Entrypoint is `jmeter`, working directory `/test-plans`
+## ✨ What's inside
 
-## Quick start
+| | Component | Version |
+|---|---|---|
+| ☕ | Java runtime (`eclipse-temurin`) | 17 |
+| 🔥 | Apache JMeter | 5.6.3 |
+| 📈 | [`jmeter-prometheus-plugin`](https://github.com/johrstrom/jmeter-prometheus-plugin) | 0.7.1 |
+| 🐘 | PostgreSQL JDBC driver | 42.7.4 |
 
-This image is meant to be driven by the toolkit, which generates test plans from a short YAML profile, runs them, and reports results:
+**Why use this instead of stock JMeter?**
+- 📡 Metrics are exposed on `0.0.0.0:9270`. The plugin binds to localhost by default, which makes metrics unreachable from other containers (a quiet failure that wastes hours).
+- 🧩 The Prometheus listener and the database driver are already installed, so test plans that use them open and run straight away.
+- 🪶 Entrypoint is `jmeter` and the working directory is `/test-plans`, so it behaves like the command you already know.
+
+## 🏁 Quick start with the toolkit
 
 ```bash
-git clone https://github.com/pythonicsshahdev/BOOMI_Performance_Testing_POC
-cd BOOMI_Performance_Testing_POC
-./setup.sh
-./ramp.sh profiles/rest-minimal.yaml
+git clone https://github.com/pythonicsshahdev/boomi-load-testing-toolkit
+cd boomi-load-testing-toolkit
+./setup.sh                                  # pulls this image and starts the stack
+./ramp.sh profiles/rest-minimal.yaml        # a 20 second test against a bundled sample API
 ```
 
-Standalone use:
+Then open Grafana at http://localhost:3004 (`admin` / `admin`) to see the run.
+
+## 🔧 Use it on its own
 
 ```bash
 docker run --rm -v "$PWD/test-plans:/test-plans" -p 9270:9270 \
   pythonicshahdev/boomi-loadtest-jmeter:latest -n -t /test-plans/my-plan.jmx
 ```
 
-Metrics appear at `http://localhost:9270/metrics` while the test runs.
+Metrics are live at `http://localhost:9270/metrics` while the test runs.
 
-## Tags
+## 🏷️ Tags and platforms
 
-`latest` and a dated tag (`YYYY-MM-DD`) for each release. Multi-arch: `linux/amd64`, `linux/arm64`.
+| Tag | Meaning |
+|---|---|
+| `latest` | the newest release |
+| `YYYY-MM-DD` | a pinned release, for repeatable setups |
 
-## Source and license
+🖥️ Multi-arch: `linux/amd64` and `linux/arm64` (Intel, Apple Silicon, AWS Graviton).
 
-https://github.com/pythonicsshahdev/BOOMI_Performance_Testing_POC (MIT)
+## 🔗 Related images
+
+- 📊 [`boomi-loadtest-grafana`](https://hub.docker.com/r/pythonicshahdev/boomi-loadtest-grafana): the dashboard
+- 🧪 [`boomi-loadtest-graphql-target`](https://hub.docker.com/r/pythonicshahdev/boomi-loadtest-graphql-target): a sample API to test against
+
+## 📄 Source and license
+
+Everything is on GitHub: https://github.com/pythonicsshahdev/boomi-load-testing-toolkit. Released under the **MIT** license. Apache JMeter and the Prometheus plugin are licensed separately by their authors.
