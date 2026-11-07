@@ -693,7 +693,7 @@ function renderResults(run, el = $("tab-results")) {
 
 function renderRegression(run, el = $("tab-regression")) {
   const g = run.summary && run.summary.regression;
-  if (!g) { el.innerHTML = '<div class="muted">This profile has no baseline check.</div>'; return; }
+  if (!g) { el.innerHTML = `<div class="muted">The profile for this run (${esc(run.profile)}) has no baseline check. Add a <code>regression:</code> block with a baseline name to it, then run it once with “Run and save as baseline”.</div>`; return; }
   const note = { saved: `Saved as baseline “${g.baseline}”.`, not_saved: "Baseline not saved: the run had a stop rule or a failed instance, so it isn't a trustworthy reference.",
     no_baseline: `No baseline “${g.baseline}” exists yet. Use “Run and save as baseline” to record one.`, passed: `Compared with baseline “${g.baseline}”: no regression.`,
     failed: `Compared with baseline “${g.baseline}”: regression found.` }[g.status] || "";
