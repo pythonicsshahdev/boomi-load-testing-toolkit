@@ -114,7 +114,9 @@
   <select id="tAuth">
     <option value="none">None</option>
     <option value="basic">Basic (from .env BASIC_AUTH_USER / BASIC_AUTH_PASS)</option>
-    <option value="api_key">API key header (from .env API_KEY)</option>
+    <option value="api_key">API key header (from .env BOOMI_TEST_TARGET_API_KEY)</option>
+    <option value="api_key_query">API key in the query string, ?api_key=... (Cloud API Management default)</option>
+    <option value="api_key_signature">API key + signature (Cloud API Management key and secret)</option>
     <option value="bearer">Bearer token (from .env BOOMI_TEST_TARGET_BEARER_TOKEN)</option>
     <option value="oauth2_client_credentials">OAuth 2.0 client credentials (client id/secret from .env)</option>
   </select>
@@ -329,7 +331,9 @@ function toYaml(p) {
   yaml += `  protocol: ${p.target.protocol}\n`;
   yaml += `  host: ${escapeYamlScalar(p.target.host)}\n`;
   yaml += `  port: ${p.target.port}\n`;
-  yaml += `  auth: ${p.target.auth}\n`;
+  yaml += `  auth: ${p.target.auth === 'api_key_query' ? 'api_key' : p.target.auth}\n`;
+  if (p.target.auth === 'api_key_query') yaml += `  api_key_in: query\n`;
+  if (p.target.auth === 'api_key_signature') yaml += `  signature_algorithm: sha256\n`;
   if (p.target.auth === 'oauth2_client_credentials') {
     yaml += `  oauth:\n    token_url: ${escapeYamlScalar(p.target.tokenUrl)}\n`;
     if (p.target.scope) yaml += `    scope: ${escapeYamlScalar(p.target.scope)}\n`;

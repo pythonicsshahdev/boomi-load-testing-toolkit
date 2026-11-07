@@ -28,6 +28,9 @@ services:
       # Login for the bundled oauth-target sample (profiles/rest-oauth-sample.yaml). Public demo values.
       BOOMI_TEST_OAUTH_STUB_CLIENT_ID: loadtest-client
       BOOMI_TEST_OAUTH_STUB_CLIENT_SECRET: loadtest-secret
+      # Key and secret for the oauth-target's Cloud API Management style endpoints. Public demo values.
+      BOOMI_TEST_CAM_STUB_KEY: cam-test-key
+      BOOMI_TEST_CAM_STUB_SECRET: cam-test-secret
     # Docker Desktop provides host.docker.internal itself; on a Linux host this
     # maps it to the host so profiles that target "the machine running the stack" work there too.
     extra_hosts:
@@ -63,6 +66,9 @@ services:
       # Login for the bundled oauth-target sample (profiles/rest-oauth-sample.yaml). Public demo values.
       BOOMI_TEST_OAUTH_STUB_CLIENT_ID: loadtest-client
       BOOMI_TEST_OAUTH_STUB_CLIENT_SECRET: loadtest-secret
+      # Key and secret for the oauth-target's Cloud API Management style endpoints. Public demo values.
+      BOOMI_TEST_CAM_STUB_KEY: cam-test-key
+      BOOMI_TEST_CAM_STUB_SECRET: cam-test-secret
     # Docker Desktop provides host.docker.internal itself; on a Linux host this
     # maps it to the host so profiles that target "the machine running the stack" work there too.
     extra_hosts:

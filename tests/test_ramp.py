@@ -587,3 +587,57 @@ def test_try_first_request_declines_chained_and_database_profiles():
     assert "earlier response" in ramp.try_first_request(profile)["message"]
     profile["target"]["protocol"] = "jdbc"
     assert "HTTP profiles" in ramp.try_first_request(profile)["message"]
+
+
+# --- API key in the query string, and signed requests (Boomi Cloud API Management) --------------------
+
+def _cam_profile(auth, **target):
+    profile = _endpoint_profile()
+    profile["target"].update({"auth": auth, **target})
+    return profile
+
+
+def test_validate_api_key_location_and_signature_settings():
+    assert ramp.validate_profile(_cam_profile("api_key", api_key_in="query", api_key_param="key")) == []
+    assert ramp.validate_profile(_cam_profile("api_key_signature", signature_algorithm="md5", signature_param="signature",
+                                              api_key_env="K", api_secret_env="S")) == []
+    errors = "\n".join(ramp.validate_profile(_cam_profile("api_key", api_key_in="cookie")))
+    assert "api_key_in must be one of" in errors
+    errors = "\n".join(ramp.validate_profile(_cam_profile("api_key_signature", signature_algorithm="sha1", api_key_param="bad name",
+                                                          api_secret_env="not-a-name")))
+    assert "signature_algorithm must be one of" in errors and "plain parameter name" in errors and "NAME of an environment variable" in errors
+    errors = "\n".join(ramp.validate_profile(_cam_profile("basic", api_key_in="query", signature_algorithm="md5", api_key_env="K")))
+    assert "api_key_in only applies" in errors and "signature_algorithm only applies" in errors and "api_key_env only applies" in errors
+
+
+def test_api_key_in_query_goes_on_every_request_and_not_in_a_header():
+    profile = _cam_profile("api_key", api_key_in="query")
+    profile["requests"][0]["path"] = "/customers?limit=5"
+    xml = ramp.build_plan_from_profile(profile)
+    paths = [e.text for e in ET.fromstring(xml).iter("stringProp") if e.get("name") == "HTTPSampler.path" and e.text]
+    assert paths[0] == '/customers?limit=5&api_key=${__groovy(System.getenv("BOOMI_TEST_TARGET_API_KEY"))}'
+    assert paths[1] == '/customers/${id}?api_key=${__groovy(System.getenv("BOOMI_TEST_TARGET_API_KEY"))}'
+    assert "x-api-key" not in xml
+    header = ramp.build_plan_from_profile(_cam_profile("api_key"))
+    assert "x-api-key" in header and "api_key=" not in header
+
+
+def test_signature_expression_digests_key_secret_and_epoch_seconds():
+    target = _cam_profile("api_key_signature", signature_param="s", api_key_env="K", api_secret_env="S")["target"]
+    suffix = ramp.auth_query_suffix(target)
+    assert suffix.startswith('api_key=${__groovy(System.getenv("K"))}&s=${__groovy(')
+    expr = ramp._signature_groovy(target)
+    assert 'getInstance("SHA-256")' in expr and 'System.getenv("K")' in expr and 'System.getenv("S")' in expr
+    assert "currentTimeMillis().intdiv(1000)" in expr and "," not in expr  # a comma would split JMeter function arguments
+    target["signature_algorithm"] = "md5"
+    assert 'getInstance("MD5")' in ramp._signature_groovy(target)
+    assert ramp.auth_query_suffix({"auth": "none"}) == "" and ramp.with_auth_query("/x", {"auth": "none"}) == "/x"
+
+
+def test_launch_keeps_request_urls_out_of_the_results_file(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(ramp.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(ramp, "write_target_file", lambda *a, **k: None)
+    monkeypatch.setattr(ramp.subprocess, "Popen", lambda cmd, **k: seen.setdefault("cmd", cmd))
+    ramp.launch_instance("rest/ramp.jmx", "20260101-000000", "step-01", 1, 2, 10)
+    assert "-Jjmeter.save.saveservice.url=false" in seen["cmd"]

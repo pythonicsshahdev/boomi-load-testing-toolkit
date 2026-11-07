@@ -15,7 +15,8 @@ RUN_ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}$")
 
 # Variables docker-compose.yml sets itself for the bundled samples, so they are always present in the container.
 COMPOSE_DEFAULTS = {"BOOMI_TEST_DB_USER", "BOOMI_TEST_DB_PASSWORD",
-                    "BOOMI_TEST_OAUTH_STUB_CLIENT_ID", "BOOMI_TEST_OAUTH_STUB_CLIENT_SECRET"}
+                    "BOOMI_TEST_OAUTH_STUB_CLIENT_ID", "BOOMI_TEST_OAUTH_STUB_CLIENT_SECRET",
+                    "BOOMI_TEST_CAM_STUB_KEY", "BOOMI_TEST_CAM_STUB_SECRET"}
 
 
 def _prom(promql):
@@ -86,7 +87,9 @@ def required_env(target):
                 (target.get("password_env", "BOOMI_TEST_DB_PASSWORD"), "database password")]
     return {
         "basic": [("BOOMI_TEST_TARGET_BASIC_AUTH_USER", "basic auth user"), ("BOOMI_TEST_TARGET_BASIC_AUTH_PASS", "basic auth password")],
-        "api_key": [("BOOMI_TEST_TARGET_API_KEY", "API key")],
+        "api_key": [(target.get("api_key_env", "BOOMI_TEST_TARGET_API_KEY"), "API key")],
+        "api_key_signature": [(target.get("api_key_env", "BOOMI_TEST_TARGET_API_KEY"), "API key"),
+                              (target.get("api_secret_env", "BOOMI_TEST_TARGET_API_SECRET"), "API secret")],
         "bearer": [(target.get("token_env", "BOOMI_TEST_TARGET_BEARER_TOKEN"), "bearer token")],
         "oauth2_client_credentials": [(oauth.get("client_id_env", "BOOMI_TEST_OAUTH_CLIENT_ID"), "OAuth client id"),
                                       (oauth.get("client_secret_env", "BOOMI_TEST_OAUTH_CLIENT_SECRET"), "OAuth client secret")],

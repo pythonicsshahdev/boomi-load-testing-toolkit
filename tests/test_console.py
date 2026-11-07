@@ -398,6 +398,7 @@ def test_required_env_names_follow_the_auth_type():
     assert [n for n, _ in extras.required_env({"auth": "api_key"})] == ["BOOMI_TEST_TARGET_API_KEY"]
     assert [n for n, _ in extras.required_env({"auth": "oauth2_client_credentials", "oauth": {"client_id_env": "MY_ID"}})] == ["MY_ID", "BOOMI_TEST_OAUTH_CLIENT_SECRET"]
     assert [n for n, _ in extras.required_env({"protocol": "jdbc"})] == ["BOOMI_TEST_DB_USER", "BOOMI_TEST_DB_PASSWORD"]
+    assert [n for n, _ in extras.required_env({"auth": "api_key_signature", "api_key_env": "K"})] == ["K", "BOOMI_TEST_TARGET_API_SECRET"]
 
 
 def test_precheck_reports_missing_credentials_by_name_only(tmp_path, monkeypatch):

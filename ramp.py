@@ -365,7 +365,12 @@ def validate_profile(profile):
     return errors
 
 
-VALID_AUTH = ("none", "basic", "api_key", "bearer", "oauth2_client_credentials")
+VALID_AUTH = ("none", "basic", "api_key", "api_key_signature", "bearer", "oauth2_client_credentials")
+API_KEY_LOCATIONS = ("header", "query")
+SIGNATURE_ALGORITHMS = ("sha256", "md5")
+DEFAULT_API_KEY_ENV = "BOOMI_TEST_TARGET_API_KEY"
+DEFAULT_API_SECRET_ENV = "BOOMI_TEST_TARGET_API_SECRET"
+PARAM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 DEFAULT_BEARER_TOKEN_ENV = "BOOMI_TEST_TARGET_BEARER_TOKEN"
 DEFAULT_OAUTH_ID_ENV = "BOOMI_TEST_OAUTH_CLIENT_ID"
 DEFAULT_OAUTH_SECRET_ENV = "BOOMI_TEST_OAUTH_CLIENT_SECRET"
@@ -397,6 +402,7 @@ def _validate_auth(target):
     if auth == "bearer" and "token_env" in target and not _is_env_name(target["token_env"]):
         errors.append(f"target.token_env must be the NAME of an environment variable in .env "
                       f"(capital letters, digits, underscores), not the token itself; got {target['token_env']!r}")
+    errors.extend(_validate_api_key_settings(target, auth))
     if auth != "oauth2_client_credentials":
         return errors
     if not isinstance(oauth, dict):
@@ -420,6 +426,40 @@ def _validate_auth(target):
     for key in oauth:
         if key not in known:
             errors.append(f"target.oauth.{key} is not a known setting (known: {sorted(known)})")
+    return errors
+
+
+def _validate_api_key_settings(target, auth):
+    """api_key can travel in a header (default) or the query string; api_key_signature adds a per-request
+    signature (the Boomi Cloud API Management / Mashery apiKeyAndSecret scheme)."""
+    errors = []
+    keyed = ("api_key", "api_key_signature")
+    if "api_key_in" in target:
+        if auth != "api_key":
+            errors.append("target.api_key_in only applies with auth: api_key (api_key_signature always uses the query string)")
+        elif target["api_key_in"] not in API_KEY_LOCATIONS:
+            errors.append(f"target.api_key_in must be one of {list(API_KEY_LOCATIONS)}, got {target['api_key_in']!r}")
+    if "api_key_header" in target and auth != "api_key":
+        errors.append("target.api_key_header only applies with auth: api_key")
+    for key in ("api_key_param", "signature_param"):
+        if key in target:
+            if auth not in keyed:
+                errors.append(f"target.{key} only applies with auth: api_key or api_key_signature")
+            elif not isinstance(target[key], str) or not PARAM_NAME_RE.match(target[key]):
+                errors.append(f"target.{key} must be a plain parameter name (letters, digits, _ . -), got {target[key]!r}")
+    for key in ("signature_algorithm", "api_secret_env"):
+        if key in target and auth != "api_key_signature":
+            errors.append(f"target.{key} only applies with auth: api_key_signature")
+    if auth == "api_key_signature":
+        if target.get("signature_algorithm", "sha256") not in SIGNATURE_ALGORITHMS:
+            errors.append(f"target.signature_algorithm must be one of {list(SIGNATURE_ALGORITHMS)}, got {target.get('signature_algorithm')!r}")
+        if "api_secret_env" in target and not _is_env_name(target["api_secret_env"]):
+            errors.append(f"target.api_secret_env must be the NAME of an environment variable in .env, got {target['api_secret_env']!r}")
+    if "api_key_env" in target:
+        if auth not in keyed:
+            errors.append("target.api_key_env only applies with auth: api_key or api_key_signature")
+        elif not _is_env_name(target["api_key_env"]):
+            errors.append(f"target.api_key_env must be the NAME of an environment variable in .env, got {target['api_key_env']!r}")
     return errors
 
 
@@ -674,6 +714,35 @@ def _http_sampler(parent, req, think_default=0):
         _sp(pp, "JSONPostProcessor.defaultValues", "NOT_FOUND")
 
 
+def _signature_groovy(target):
+    """A JMeter __groovy() expression for hex(digest(key + secret + epoch seconds)), evaluated on every request
+    so the timestamp is always fresh. No commas, because JMeter would read them as function arguments."""
+    algorithm = {"sha256": "SHA-256", "md5": "MD5"}[target.get("signature_algorithm", "sha256")]
+    key_env = target.get("api_key_env", DEFAULT_API_KEY_ENV)
+    secret_env = target.get("api_secret_env", DEFAULT_API_SECRET_ENV)
+    return ('${__groovy(java.security.MessageDigest.getInstance("%s").digest((System.getenv("%s") + System.getenv("%s") '
+            '+ System.currentTimeMillis().intdiv(1000)).getBytes("UTF-8")).encodeHex().toString())}') % (algorithm, key_env, secret_env)
+
+
+def auth_query_suffix(target):
+    """Query-string text appended to every request for auth types that travel in the URL, else ''."""
+    auth = target.get("auth", "none")
+    key_param = target.get("api_key_param", "api_key")
+    key_ref = '${__groovy(System.getenv("%s"))}' % target.get("api_key_env", DEFAULT_API_KEY_ENV)
+    if auth == "api_key" and target.get("api_key_in", "header") == "query":
+        return f"{key_param}={key_ref}"
+    if auth == "api_key_signature":
+        return f"{key_param}={key_ref}&{target.get('signature_param', 'sig')}={_signature_groovy(target)}"
+    return ""
+
+
+def with_auth_query(path, target):
+    suffix = auth_query_suffix(target)
+    if not suffix:
+        return path
+    return path + ("&" if "?" in path else "?") + suffix
+
+
 def _add_throughput_timer(thread_group_tree, profile):
     if any("rps" in step or "tps" in step for step in profile["steps"]):
         # Per-instance cap; the launcher sets RPS_PER_MIN per step. Steps without an
@@ -875,9 +944,9 @@ def build_plan_from_profile(profile):
         _sp(am, "AuthManager.controlledByThreadGroup", "false", tag="boolProp")
 
     headers = []
-    if auth == "api_key":
+    if auth == "api_key" and target.get("api_key_in", "header") == "header":
         headers.append((target.get("api_key_header", "x-api-key"),
-                        '${__groovy(System.getenv("BOOMI_TEST_TARGET_API_KEY"))}'))
+                        '${__groovy(System.getenv("%s"))}' % target.get("api_key_env", DEFAULT_API_KEY_ENV)))
     if auth == "bearer":
         token_env = target.get("token_env", DEFAULT_BEARER_TOKEN_ENV)
         headers.append(("Authorization", 'Bearer ${__groovy(System.getenv("%s"))}' % token_env))
@@ -892,7 +961,7 @@ def build_plan_from_profile(profile):
     _add_throughput_timer(thread_group_tree, profile)
 
     for req in profile["requests"]:
-        _http_sampler(thread_group_tree, req, profile.get("think_time_ms", 0))
+        _http_sampler(thread_group_tree, {**req, "path": with_auth_query(req["path"], target)}, profile.get("think_time_ms", 0))
 
     thread_group_tree.append(listener)
     thread_group_tree.append(listener_tree)
@@ -1017,9 +1086,16 @@ fetch_token() {
   [ -n "$TOKEN" ] || { echo "TOKEN_MISSING"; exit 5; }
 }
 set -- -sS -m 20 -o /tmp/body -D /tmp/hdr -w '%{http_code} %{time_total}' -X "$METHOD"
+SEP='?'; case "$URL" in *\?*) SEP='&' ;; esac
 case "$AUTH" in
+  api_key_signature)
+    TS=$(date +%s); KV=$(printenv "$API_KEY_ENV"); SV=$(printenv "$API_SECRET_ENV")
+    if [ "$ALGO" = md5 ]; then SIG=$(printf '%s%s%s' "$KV" "$SV" "$TS" | md5sum | cut -d' ' -f1); else SIG=$(printf '%s%s%s' "$KV" "$SV" "$TS" | sha256sum | cut -d' ' -f1); fi
+    URL="${URL}${SEP}${KEY_PARAM}=${KV}&${SIG_PARAM}=${SIG}" ;;
+esac
+case "$AUTH" in
+  api_key) if [ "$KEY_IN" = query ]; then URL="${URL}${SEP}${KEY_PARAM}=$(printenv "$API_KEY_ENV")"; else set -- "$@" -H "$KEY_HEADER: $(printenv "$API_KEY_ENV")"; fi ;;
   basic) set -- "$@" -u "$(printenv BOOMI_TEST_TARGET_BASIC_AUTH_USER):$(printenv BOOMI_TEST_TARGET_BASIC_AUTH_PASS)" ;;
-  api_key) set -- "$@" -H "$KEY_HEADER: $(printenv BOOMI_TEST_TARGET_API_KEY)" ;;
   bearer) set -- "$@" -H "Authorization: Bearer $(printenv "$TOKEN_ENV")" ;;
   oauth2_client_credentials) fetch_token; set -- "$@" -H "Authorization: Bearer $TOKEN" ;;
 esac
@@ -1048,7 +1124,10 @@ def try_first_request(profile):
     oauth = target.get("oauth") or {}
     env = {
         "URL": url, "METHOD": req.get("method", "GET"), "BODY": req.get("body", ""), "AUTH": auth,
-        "KEY_HEADER": target.get("api_key_header", "x-api-key"),
+        "KEY_HEADER": target.get("api_key_header", "x-api-key"), "KEY_IN": target.get("api_key_in", "header"),
+        "KEY_PARAM": target.get("api_key_param", "api_key"), "SIG_PARAM": target.get("signature_param", "sig"),
+        "API_KEY_ENV": target.get("api_key_env", DEFAULT_API_KEY_ENV), "API_SECRET_ENV": target.get("api_secret_env", DEFAULT_API_SECRET_ENV),
+        "ALGO": target.get("signature_algorithm", "sha256"),
         "TOKEN_ENV": target.get("token_env", DEFAULT_BEARER_TOKEN_ENV),
         "TOKEN_URL": oauth.get("token_url", ""), "SCOPE": oauth.get("scope", ""), "AUDIENCE": oauth.get("audience", ""),
         "CLIENT_AUTH": oauth.get("client_auth", "basic"),
@@ -1103,6 +1182,8 @@ def launch_instance(test_plan, run_id, step_id, idx, threads, duration, rps_per_
         "-l", result_file,
         f"-JTHREADS={threads}",
         f"-JDURATION={duration}",
+        # Keep request URLs out of the raw results file: with auth in the query string they would hold the API key.
+        "-Jjmeter.save.saveservice.url=false",
     ]
     if rps_per_min is not None:
         cmd.append(f"-JRPS_PER_MIN={rps_per_min}")

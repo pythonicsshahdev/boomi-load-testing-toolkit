@@ -157,7 +157,8 @@ Set `target.auth` in the profile. Secrets are never written in a profile: it nam
 |---|---|---|
 | `none` | nothing | none |
 | `basic` | HTTP Basic | `BOOMI_TEST_TARGET_BASIC_AUTH_USER`, `BOOMI_TEST_TARGET_BASIC_AUTH_PASS` |
-| `api_key` | an API key header (`x-api-key` by default, change it with `api_key_header`) | `BOOMI_TEST_TARGET_API_KEY` |
+| `api_key` | an API key, in a header (`x-api-key` by default, change it with `api_key_header`) or in the query string with `api_key_in: query` (`?api_key=...`, rename it with `api_key_param`) | `BOOMI_TEST_TARGET_API_KEY` (or name another with `api_key_env`) |
+| `api_key_signature` | the API key plus a per-request signature in the query string: `sig` = hex digest of key + secret + epoch seconds (`signature_algorithm: sha256` or `md5`) | `BOOMI_TEST_TARGET_API_KEY`, `BOOMI_TEST_TARGET_API_SECRET` |
 | `bearer` | `Authorization: Bearer <token>` with a fixed token | `BOOMI_TEST_TARGET_BEARER_TOKEN` (or name another with `token_env`) |
 | `oauth2_client_credentials` | a token fetched from your identity provider, refreshed before it expires | `BOOMI_TEST_OAUTH_CLIENT_ID`, `BOOMI_TEST_OAUTH_CLIENT_SECRET` |
 
@@ -194,7 +195,26 @@ docker-compose up -d oauth-target
 curl -s localhost:8012/stats
 ```
 
-Not covered yet: password and authorization-code grants, private-key JWT client authentication, mutual TLS, and API-key-as-query-parameter or signature schemes.
+### Testing an API behind Boomi Cloud API Management
+
+Cloud API Management (Mashery) lets each endpoint choose how callers authenticate. Match the endpoint's setting to the toolkit's:
+
+| Endpoint setting in Cloud API Management | Profile `target:` |
+|---|---|
+| `apiKey`, key sent as `?api_key=` | `auth: api_key`, `api_key_in: query` |
+| `apiKey`, key sent in a header | `auth: api_key`, `api_key_header: <the header name>` |
+| `apiKeyAndSecret_SHA256` (key + signed secret) | `auth: api_key_signature` |
+| `oauth` | `auth: oauth2_client_credentials`, `oauth.token_url` set to your service's token URL |
+
+Use the area's traffic domain as the host (for example `yourcompany.api.mashery.com`), `protocol: https`, `port: 443`, and the endpoint's path alias in the request paths. Put the key (and secret) in `.env`.
+
+Things to know:
+- **Plan limits show up as errors, not slowness.** A package plan enforces queries per second and quota per key. A test that exceeds them gets 403 or 429 responses and a rising error rate. Use a dedicated test key with a plan that allows the load, and confirm with the API's owner before testing a shared gateway.
+- **The key travels in the URL** for the query-string schemes, so it can appear in gateway logs. The toolkit keeps URLs out of its own results files.
+- **Samples:** `profiles/rest-cam-key-query-sample.yaml` and `profiles/rest-cam-signature-sample.yaml` run against the bundled `oauth-target`, which imitates both schemes. They prove the toolkit sends what the scheme describes. They do not prove how your area behaves.
+- **Not yet verified against a real area.** The signature follows the documented Mashery rule (digest of key + secret + timestamp in seconds, within a few minutes of the gateway's clock). Run **Test one request** against your real endpoint first. If it returns 403, check the algorithm and the clock on the machine running the test.
+
+Not covered yet: password and authorization-code grants, private-key JWT client authentication, and mutual TLS.
 
 ### Exit codes
 
@@ -255,6 +275,7 @@ skills/                 Claude Code skill for this toolkit
 - [Operations notes](docs/operations.md): authoring test plans, credentials, and operational gotchas.
 - [Latency-by-hop page](docs/examples/boomi-latency-by-hop.html): example results from a Boomi API run.
 - [Design notes](docs/design/): the original specs and implementation plans.
+- [Roadmap](docs/roadmap.md): what is not built yet, including the parked Kubernetes and Helm work.
 
 ## Tests
 

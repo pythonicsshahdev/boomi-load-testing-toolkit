@@ -1,0 +1,32 @@
+# API key plus a per-request signature, the Boomi Cloud API Management (Mashery) apiKeyAndSecret scheme.
+# sig = lowercase hex of SHA-256(api_key + secret + epoch seconds), recomputed on every request.
+# Runs against the oauth-target sample: docker-compose up -d oauth-target
+#   ./ramp.sh profiles/rest-cam-signature-sample.yaml
+#   curl -s localhost:8012/stats      # cam_ok should be in the thousands, cam_rejected 0
+test_plan: rest/ramp.jmx
+step_duration_sec: 40
+warmup_sec: 5
+think_time_ms: 100
+stop_rule:
+  max_error_rate_pct: 5
+  max_avg_response_ms: 3000
+target:
+  protocol: http
+  host: oauth-target
+  port: 8000
+  auth: api_key_signature
+  signature_algorithm: sha256          # sha256 (default) or md5
+  api_key_param: api_key
+  signature_param: sig
+  api_key_env: BOOMI_TEST_CAM_STUB_KEY
+  api_secret_env: BOOMI_TEST_CAM_STUB_SECRET
+requests:
+  - name: List customers
+    method: GET
+    path: /signed/customers
+    extract: id=$[0].customer_id
+  - name: Get customer
+    method: GET
+    path: /signed/customers/${id}
+steps:
+  - { instances: 1, threads: 5 }

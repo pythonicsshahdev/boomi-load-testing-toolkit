@@ -1,0 +1,29 @@
+# API key sent as a query parameter (?api_key=...), the Boomi Cloud API Management (Mashery) default.
+# Runs against the oauth-target sample: docker-compose up -d oauth-target
+#   ./ramp.sh profiles/rest-cam-key-query-sample.yaml
+#   curl -s localhost:8012/stats      # cam_ok should be in the thousands, cam_rejected 0
+test_plan: rest/ramp.jmx
+step_duration_sec: 40
+warmup_sec: 5
+think_time_ms: 100
+stop_rule:
+  max_error_rate_pct: 5
+  max_avg_response_ms: 3000
+target:
+  protocol: http
+  host: oauth-target
+  port: 8000
+  auth: api_key
+  api_key_in: query                    # header (default) or query
+  api_key_param: api_key               # the query parameter's name
+  api_key_env: BOOMI_TEST_CAM_STUB_KEY # the .env variable holding the key
+requests:
+  - name: List customers
+    method: GET
+    path: /key/customers
+    extract: id=$[0].customer_id
+  - name: Get customer
+    method: GET
+    path: /key/customers/${id}
+steps:
+  - { instances: 1, threads: 5 }

@@ -10,7 +10,7 @@ The toolkit is this repo. Read `README.md` at the repo root first for current co
 ## Workflow
 
 1. **Setup (once).** From the repo root: `./setup.sh` (checks prerequisites, builds or pulls images, starts Prometheus/Grafana/sample targets, creates `.venv-ramp`, runs the smoke test). Manual steps are in the README "Quick start, option B". Needs the `docker-compose` command and Python 3.9+.
-2. **Credentials.** Put the target's secrets in `.env`: `BOOMI_TEST_TARGET_API_KEY`, the `..._BASIC_AUTH_USER/PASS` pair, `BOOMI_TEST_TARGET_BEARER_TOKEN`, or `BOOMI_TEST_OAUTH_CLIENT_ID/SECRET` for `auth: oauth2_client_credentials` (token URL, scope and client auth go in the profile under `target.oauth`; see README "Authentication"). DB tests use `BOOMI_TEST_DB_USER/PASSWORD`. Never print or paste `.env` values; only check they are set.
+2. **Credentials.** Put the target's secrets in `.env`: `BOOMI_TEST_TARGET_API_KEY`, the `..._BASIC_AUTH_USER/PASS` pair, `BOOMI_TEST_TARGET_BEARER_TOKEN`, `BOOMI_TEST_TARGET_API_KEY` + `BOOMI_TEST_TARGET_API_SECRET` for `auth: api_key_signature`, or `BOOMI_TEST_OAUTH_CLIENT_ID/SECRET` for `auth: oauth2_client_credentials` (token URL, scope and client auth go in the profile under `target.oauth`; see README "Authentication"). DB tests use `BOOMI_TEST_DB_USER/PASSWORD`. Never print or paste `.env` values; only check they are set.
 3. **Write a profile** in `profiles/` (copy `rest-boomi-gateway.example.yaml` for a Boomi gateway). Target host must be reachable from inside the container: use `host.docker.internal` for something on the host, never `localhost`.
 4. **Validate:** `./ramp.sh --validate <profile>`; launches nothing.
 5. **Confirm limits before real load.** A test against a shared Atom, gateway or production system needs the owner's go-ahead. Start with the low steps from the example and increase.
@@ -32,7 +32,8 @@ The toolkit is this repo. Read `README.md` at the repo root first for current co
 - **Percentiles** come from histogram buckets (1 ms to 10 s in all plans now). Baselines saved before 2026-10-25 used coarse buckets; re-save them.
 - **Exposure:** keep ports on `127.0.0.1`. The console refuses non-local binding without `CONSOLE_TOKEN`. Database profiles are read-only unless the profile sets `allow_writes: true`; confirm before enabling writes.
 
+- **Cloud API Management (Mashery):** map the endpoint's auth type (`apiKey` in the query string or a header, `apiKeyAndSecret_SHA256`, `oauth`) to `api_key` + `api_key_in`, `api_key_signature` or `oauth2_client_credentials` (README "Testing an API behind Boomi Cloud API Management"). Plan QPS and quota limits show up as 403/429 errors, so use a dedicated test key. The signed scheme is verified only against the bundled sample, not a real area: run Test one request first.
 - **OAuth:** the token is fetched once before load (a failure there stops the run with the reason) and refreshed before expiry. The token URL is called from inside the container, so a host-machine IdP needs `host.docker.internal`. Each parallel instance gets its own token, so check the IdP's rate limits first.
 
 ## Not in scope
-OAuth password/authorization-code grants, private-key JWT and mTLS client auth, Mashery key-as-query-parameter or signature auth, MCP Gateway targets, Kubernetes/Helm and Boomi-side runtime metrics are not built. Say so rather than improvising.
+OAuth password/authorization-code grants, private-key JWT and mTLS client auth, MCP Gateway targets, Kubernetes/Helm and Boomi-side runtime metrics are not built. Say so rather than improvising.
