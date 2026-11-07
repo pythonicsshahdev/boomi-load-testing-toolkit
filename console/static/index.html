@@ -298,7 +298,7 @@ dialog::backdrop { background: rgba(8, 16, 30, .55); }
     <section class="section" id="runCard">
       <div class="head" style="margin-bottom:14px">
         <div class="row" style="gap:14px">
-          <h2 class="sec">Latest run</h2><span id="rBadge" class="badge idle">None yet</span>
+          <h2 class="sec" id="rTitle">Latest run</h2><span id="rBadge" class="badge idle">None yet</span>
         </div>
         <div class="row">
           <button id="csvBtn" class="ghost small-btn hidden">Export CSV</button>
@@ -307,6 +307,7 @@ dialog::backdrop { background: rgba(8, 16, 30, .55); }
           <button id="stopBtn" class="danger hidden">Stop run</button>
         </div>
       </div>
+      <div id="rNotice" class="msg info hidden" style="margin:0 0 14px"></div>
       <div id="rEmpty" class="muted">Start a run and it appears here with live progress.</div>
       <div id="rBody" class="hidden">
         <div class="meta" id="rMeta" style="margin-bottom:12px"></div>
@@ -481,7 +482,7 @@ function renderProfileList() {
     li.innerHTML = p.error
       ? `${thumb(null)}<div><div class="name">${esc(p.name)}</div><div class="meta">${esc(p.error)}</div></div>`
       : `${thumb(p.steps)}<div><div class="name">${esc(p.name)}</div><div class="meta">${metaSpans([plural(p.steps.length, "phase"), fmtDur(p.total_sec), p.peak_tps ? "peak " + p.peak_tps + " TPS" : p.peak_rps ? "peak " + p.peak_rps + " req/s" : ""])}</div></div>`;
-    li.onclick = () => selectProfile(p.name);
+    li.onclick = () => { state.pinned = null; selectProfile(p.name); poll(); };
     ul.appendChild(li);
   });
 }
@@ -599,6 +600,7 @@ $("newBtn").onclick = () => {
   $("pBaseline").textContent = ""; $("pError").classList.add("hidden"); $("runBtn").disabled = $("runBaseBtn").disabled = true;
   $("yamlText").value = "# Phased load: each step is one phase.\ntest_plan: rest/ramp.jmx\nstep_duration_sec: 60\nwarmup_sec: 8\nthink_time_ms: 200\nstop_rule:\n  max_error_rate_pct: 5\n  max_avg_response_ms: 3000\ntarget:\n  protocol: http\n  host: host.docker.internal\n  port: 8078\n  auth: api_key\nrequests:\n- name: List customers\n  method: GET\n  path: /ws/rest/proxy/v1/customers\nsteps:\n- instances: 1\n  threads: 8\n  tps: 10\n- instances: 1\n  threads: 14\n  tps: 20\n";
   $("saveName").value = ""; $("editor").classList.remove("hidden"); setMsg("", "");
+  state.pinned = null; poll();
 };
 $("search").oninput = renderProfileList;
 
@@ -613,7 +615,7 @@ async function startRun(saveBaseline, confirmed) {
   setMsg("", "");
   try {
     const run = await api("/api/runs", { method: "POST", body: { profile: state.selected, save_baseline: saveBaseline, confirmed } });
-    state.runId = run.id; state.logOffset = 0; state.logRunId = null; $("logBox").textContent = "";
+    state.pinned = run.id; state.runId = run.id; state.logOffset = 0; state.logRunId = null; $("logBox").textContent = "";
     await poll();
   } catch (e) {
     if (e.status === 428) {
@@ -643,6 +645,7 @@ function grafanaLink(run) {
 
 function renderRun(run) {
   $("rEmpty").classList.add("hidden"); $("rBody").classList.remove("hidden");
+  $("rTitle").textContent = state.selected ? `Latest run of ${run.profile}` : "Latest run";
   const running = run.status === "running";
   $("rBadge").outerHTML = badge(run.status).replace("<span", '<span id="rBadge"');
   $("stopBtn").classList.toggle("hidden", !running);
@@ -778,7 +781,7 @@ async function pullLog(run) {
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-state.picked = new Set();
+state.picked = new Set(); state.pinned = null;
 function syncFilterChoices(runs) {
   const fill = (id, values, label) => {
     const el = $(id), keep = el.value;
@@ -800,7 +803,10 @@ function renderHistory(runs) {
   }).join("") || (runs.length ? '<tr><td colspan="6" class="muted">No runs match those filters.</td></tr>' : "");
   document.querySelectorAll("#histBody tr[data-id]").forEach((tr) => tr.onclick = (e) => {
     if (e.target.classList.contains("pickbox")) return;
-    state.runId = tr.dataset.id; poll(); window.scrollTo({ top: $("runCard").offsetTop - 20, behavior: "smooth" });
+    state.pinned = tr.dataset.id;
+    const picked = (state.runs || []).find((r) => r.id === state.pinned);
+    if (picked && picked.profile !== state.selected && state.profiles.some((p) => p.name === picked.profile)) selectProfile(picked.profile);
+    poll(); window.scrollTo({ top: $("runCard").offsetTop - 20, behavior: "smooth" });
   });
   document.querySelectorAll(".pickbox").forEach((cb) => cb.onchange = () => {
     if (cb.checked) state.picked.add(cb.dataset.id); else state.picked.delete(cb.dataset.id);
@@ -834,14 +840,39 @@ $("compareBtn").onclick = async () => {
   $("compare").innerHTML = html; $("compare").classList.remove("hidden"); $("compare").scrollIntoView({ behavior: "smooth", block: "nearest" });
 };
 
+/* A run of another profile may be in progress while a profile is selected: say so, and offer to show it. */
+function showRunNotice(shownId) {
+  const el = $("rNotice"), other = state.activeRun && state.activeRun.id !== shownId ? state.activeRun : null;
+  if (!other) { el.classList.add("hidden"); return; }
+  el.innerHTML = `A run of <b>${esc(other.profile)}</b> is in progress. <button id="showActive" class="small-btn" style="margin-left:8px">Show it</button>`;
+  el.classList.remove("hidden");
+  $("showActive").onclick = () => { state.pinned = other.id; if (state.profiles.some((p) => p.name === other.profile)) selectProfile(other.profile); poll(); };
+}
+
+/* The selected profile has not been run yet. */
+function showNoRun() {
+  $("rBody").classList.add("hidden"); $("rEmpty").classList.remove("hidden");
+  $("rEmpty").textContent = state.selected ? `No runs of ${state.selected} yet. Press Run to start one, or pick an earlier run in History below.` : "Start a run and it appears here with live progress.";
+  $("rTitle").textContent = state.selected ? `Latest run of ${state.selected}` : "Latest run";
+  $("rBadge").outerHTML = '<span id="rBadge" class="badge idle">None yet</span>';
+  ["stopBtn", "csvBtn", "reportBtn", "rGrafana"].forEach((id) => $(id).classList.add("hidden"));
+}
+
 async function poll() {
   clearTimeout(state.timer);
   let delay = 8000;
   try {
     const runs = await api("/api/runs");
     state.activeRun = runs.find((r) => r.status === "running") || null;
-    if (!state.runId && runs.length) state.runId = (state.activeRun || runs[0]).id;
+    // Which run the panel shows: one the user picked or just started, else the newest run of the selected profile,
+    // else (no profile selected) the active or newest run overall.
+    let shownId = null;
+    if (state.pinned && runs.some((r) => r.id === state.pinned)) shownId = state.pinned;
+    else if (state.selected) shownId = (runs.find((r) => r.profile === state.selected) || {}).id || null;
+    else shownId = ((state.activeRun || runs[0]) || {}).id || null;
+    state.runId = shownId;
     renderHistory(runs);
+    showRunNotice(shownId);
     const top = $("topStatus");
     top.className = "badge " + (state.activeRun ? "running" : "idle"); top.textContent = state.activeRun ? "Run in progress" : "Idle";
     $("grafanaTop").classList.remove("hidden"); $("grafanaTop").href = (state.config.grafana_url || `${location.protocol}//${location.hostname}:3004`);
@@ -849,7 +880,7 @@ async function poll() {
       const run = await api(`/api/runs/${state.runId}`);
       renderRun(run); await pullLog(run); await pullLive(run);
       if (run.status === "running") delay = 1500;
-    }
+    } else showNoRun();
     updateRunButtons();
   } catch (e) { if (e.message !== "Sign in required") delay = 5000; else return; }
   state.timer = setTimeout(poll, delay);
