@@ -6,8 +6,9 @@
 #        BOOMI_TEST_TARGET_API_KEY=...            (auth: api_key)
 #        BOOMI_TEST_TARGET_BASIC_AUTH_USER/PASS=...  (auth: basic)
 #   2. The host must be reachable FROM the JMeter container: a public/VPN hostname,
-#      or host.docker.internal for something on this Mac. Not localhost.
-#   3. Start gently (1 instance, a few threads, a modest rps) -- this is a real runtime.
+#      or host.docker.internal for something on this machine. Not localhost.
+#   3. Start gently (1 instance, a few threads, a low TPS) -- this is a real runtime.
+#      TPS = whole flow iterations per second; this flow has 2 requests, so 2 TPS = 4 requests per second.
 #   4. Record a baseline once the numbers look right:  ./ramp.sh --save-baseline <this file>
 test_plan: rest/ramp.jmx
 step_duration_sec: 60
@@ -36,7 +37,7 @@ requests:
 steps:
   - instances: 1
     threads: 3
-    rps: 5
+    tps: 2
   - instances: 1
     threads: 6
-    rps: 15
+    tps: 5
