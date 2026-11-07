@@ -130,6 +130,8 @@ h2.sec { font: 700 24px/1.15 var(--display); letter-spacing: -.015em; margin: 0;
 .scope-empty { height: 120px; display: grid; place-items: center; color: var(--scope-muted); }
 
 .sub { font: 700 15px var(--display); margin: 0 0 8px; letter-spacing: -.005em; }
+.outcome-label { margin: 18px 0 0; }
+.outcome-label + .msg { margin-top: 6px; }
 .tools { display: flex; flex-wrap: wrap; gap: 16px 32px; justify-content: space-between; align-items: flex-start; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
 .checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .checklist li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; font-size: 14px; }
@@ -659,7 +661,7 @@ function renderRun(run) {
   if (document.activeElement !== $("noteInput") && $("noteInput").dataset.run !== run.id) { $("noteInput").value = run.note || ""; $("noteInput").dataset.run = run.id; }
   if (!running) { $("rLive").classList.add("hidden"); }
   const o = OUTCOME[run.status];
-  $("rOutcome").innerHTML = o ? `<div class="msg ${o[0]}">${esc(o[1])}</div>` : "";
+  $("rOutcome").innerHTML = o ? `<h3 class="sub outcome-label">Outcome</h3><div class="msg ${o[0]}">${esc(o[1])}</div>` : "";
   if (!running) { renderResults(run); renderRegression(run); }
   else { $("tab-results").innerHTML = '<div class="muted">Results appear when the run finishes. Watch the Log tab, or open Grafana for live charts.</div>'; $("tab-regression").innerHTML = ""; }
 }
