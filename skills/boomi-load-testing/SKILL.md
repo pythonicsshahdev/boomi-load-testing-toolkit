@@ -5,13 +5,13 @@ description: Use when someone wants to load test, stress test, ramp/spike test, 
 
 # Boomi Load Testing Toolkit
 
-The toolkit lives in this repo under `POC_DEVELOPMENT/`. Read `README.md` at the repo root first for current commands, ports and profile fields; it is the source of truth. This skill holds the workflow and the pitfalls that fail silently.
+The toolkit is this repo. Read `README.md` at the repo root first for current commands, ports and profile fields; it is the source of truth. This skill holds the workflow and the pitfalls that fail silently.
 
 ## Workflow
 
-1. **Setup (once).** From `POC_DEVELOPMENT/`: `./setup.sh` (checks prerequisites, builds or pulls images, starts Prometheus/Grafana/sample targets, creates `.venv-ramp`, runs the smoke test). Manual steps are in the README "Quick start, option B". Needs the `docker-compose` command and Python 3.9+.
-2. **Credentials.** Put the target's key in `POC_DEVELOPMENT/.env` (`BOOMI_TEST_TARGET_API_KEY`, or the `..._BASIC_AUTH_USER/PASS` pair; DB tests use `BOOMI_TEST_DB_USER/PASSWORD`). Never print or paste `.env` values; only check they are set.
-3. **Write a profile** in `ramp-profiles/` (copy `rest-boomi-gateway.example.yaml` for a Boomi gateway). Target host must be reachable from inside the container: use `host.docker.internal` for something on the host, never `localhost`.
+1. **Setup (once).** From the repo root: `./setup.sh` (checks prerequisites, builds or pulls images, starts Prometheus/Grafana/sample targets, creates `.venv-ramp`, runs the smoke test). Manual steps are in the README "Quick start, option B". Needs the `docker-compose` command and Python 3.9+.
+2. **Credentials.** Put the target's key in `.env` (`BOOMI_TEST_TARGET_API_KEY`, or the `..._BASIC_AUTH_USER/PASS` pair; DB tests use `BOOMI_TEST_DB_USER/PASSWORD`). Never print or paste `.env` values; only check they are set.
+3. **Write a profile** in `profiles/` (copy `rest-boomi-gateway.example.yaml` for a Boomi gateway). Target host must be reachable from inside the container: use `host.docker.internal` for something on the host, never `localhost`.
 4. **Validate:** `./ramp.sh --validate <profile>`; launches nothing.
 5. **Confirm limits before real load.** A test against a shared Atom, gateway or production system needs the owner's go-ahead. Start with the low steps from the example and increase.
 6. **Run:** `./ramp.sh <profile>` or use the web console (`./console.sh`, http://localhost:8800). Read the printed summary, then Grafana (http://localhost:3004, `admin`/`admin`), filter by `run_id`/`step_id`.
@@ -27,7 +27,7 @@ The toolkit lives in this repo under `POC_DEVELOPMENT/`. Read `README.md` at the
 - **`rps`/`tps` are caps, not guarantees.** If `Thrpt` falls short of target, add threads. A step needs enough duration beyond `warmup_sec` to record samples.
 - **Don't use a Transaction Controller with `parent=true`:** with jmeter-prometheus-plugin 0.7.1 it hides per-sampler labels from Prometheus.
 - **Starter plans** (`starter.jmx`, `smoke-test.jmx`) contain a 15 s pause for demos; delete it when cloning one for a real test. Profile-generated plans don't have it.
-- **Editing Grafana dashboards or provisioning:** rebuilding the image is not enough. Also remove the `grafana-data` volume (steps in `POC_DEVELOPMENT/README.md`).
+- **Editing Grafana dashboards or provisioning:** rebuilding the image is not enough. Also remove the `grafana-data` volume (steps in `docs/operations.md`).
 - **Error Rate panel showing "No data"** on a clean run is correct: the failure counter only exists after a first failure.
 - **Percentiles** come from histogram buckets (1 ms to 10 s in all plans now). Baselines saved before 2026-10-25 used coarse buckets; re-save them.
 - **Exposure:** keep ports on `127.0.0.1`. The console refuses non-local binding without `CONSOLE_TOKEN`. Database profiles are read-only unless the profile sets `allow_writes: true`; confirm before enabling writes.

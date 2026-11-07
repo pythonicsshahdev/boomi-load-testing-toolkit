@@ -1,0 +1,33 @@
+# Paced load (think time + a fixed request rate) with a baseline regression gate.
+#   ./ramp.sh --save-baseline profiles/rest-paced-regression.yaml   # record the baseline
+#   ./ramp.sh profiles/rest-paced-regression.yaml                   # later: compare (exit 4 on regression)
+test_plan: rest/ramp.jmx
+step_duration_sec: 30
+warmup_sec: 5
+think_time_ms: 100
+stop_rule:
+  max_error_rate_pct: 2
+  max_avg_response_ms: 3000
+regression:
+  baseline: rest-paced
+  max_p95_increase_pct: 30
+  max_error_rate_increase_pct: 1
+  min_p95_delta_ms: 15
+target:
+  protocol: http
+  host: rest-target
+  port: 4005
+  auth: none
+requests:
+  - name: "List customers"
+    path: "/customers?limit=5"
+    extract: "id=$[0].customer_id"
+  - name: "Get customer"
+    path: "/customers/${id}"
+steps:
+  - instances: 1
+    threads: 3
+    rps: 20
+  - instances: 2
+    threads: 3
+    rps: 40

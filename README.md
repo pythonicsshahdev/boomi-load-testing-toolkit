@@ -49,7 +49,6 @@ You need Docker with the `docker-compose` command, and Python 3.9 or newer for t
 ### Option A: setup script
 
 ```bash
-cd POC_DEVELOPMENT
 ./setup.sh                                 # --no-smoke skips the smoke test, --build forces a local image build
 ```
 
@@ -58,7 +57,6 @@ It checks prerequisites, creates `.env`, pulls the published images (`pythonicsh
 ### Option B: manual steps
 
 ```bash
-cd POC_DEVELOPMENT
 cp .env.example .env                       # only needed for real, authenticated targets
 docker-compose pull jmeter grafana graphql-target   # or: docker-compose build, to build locally
 docker-compose build jmeter-gui
@@ -72,7 +70,7 @@ pip install -r requirements-ramp.txt
 ### Run your first test (either option)
 
 ```bash
-./ramp.sh ramp-profiles/rest-minimal.yaml  # 20 s run against the bundled REST target
+./ramp.sh profiles/rest-minimal.yaml  # 20 s run against the bundled REST target
 ```
 
 Open Grafana at http://localhost:3004 (`admin`/`admin`) and pick the printed `run_id`. Or start the web console with `./console.sh` and run it from the browser.
@@ -90,13 +88,12 @@ mkdir -p ~/.claude/skills && ln -s "$PWD/skills/boomi-load-testing" ~/.claude/sk
 You don't have to use the command line to run tests. Start the console once, then work in the browser:
 
 ```bash
-cd POC_DEVELOPMENT
 ./console.sh                 # then open http://localhost:8800
 ```
 
 Pick a profile, see what it will do (phases, duration, peak rate), then Validate, Edit, Run, or Run and save as baseline. A live run shows progress, the current phase and the log. When it finishes you get the results table, the baseline comparison in plain words, and a link to that run in Grafana. Past runs are listed under History. It runs the same `ramp.py` underneath, so results are identical to the command line, and `./ramp.sh` keeps working for CI.
 
-It listens on `127.0.0.1` only. To use it on a VM, see [Running the console on a VM](POC_DEVELOPMENT/docs/usage-guide-2026-10-15.md#running-the-console-on-a-vm-ec2-or-similar).
+It listens on `127.0.0.1` only. To use it on a VM, see [Running the console on a VM](docs/usage-guide.md#running-the-console-on-a-vm-ec2-or-similar).
 
 ## Writing a profile
 
@@ -132,12 +129,12 @@ steps:
 ```
 
 ```bash
-./ramp.sh --validate ramp-profiles/rest-boomi-phased-tps.yaml    # check without launching anything
-./ramp.sh --save-baseline ramp-profiles/rest-boomi-phased-tps.yaml   # record a known-good run
-./ramp.sh ramp-profiles/rest-boomi-phased-tps.yaml               # later runs are compared to it
+./ramp.sh --validate profiles/rest-boomi-phased-tps.yaml    # check without launching anything
+./ramp.sh --save-baseline profiles/rest-boomi-phased-tps.yaml   # record a known-good run
+./ramp.sh profiles/rest-boomi-phased-tps.yaml               # later runs are compared to it
 ```
 
-Example profiles are in `POC_DEVELOPMENT/ramp-profiles/`, including a Boomi gateway template (`rest-boomi-gateway.example.yaml`), phased TPS runs, a spike pattern and slow-request detection.
+Example profiles are in `profiles/`, including a Boomi gateway template (`rest-boomi-gateway.example.yaml`), phased TPS runs, a spike pattern and slow-request detection.
 
 `rps` and `tps` are caps, not guarantees. If the thread count and think time can't reach the target, the achieved rate lands below it. Add threads if the summary's `Thrpt` falls short.
 
@@ -155,8 +152,8 @@ The summary report prints in every case. When requests failed, it also lists the
 
 ## Testing a Boomi-published API
 
-1. Copy `ramp-profiles/rest-boomi-gateway.example.yaml` and fill in the placeholders.
-2. Put credentials in `POC_DEVELOPMENT/.env` (`BOOMI_TEST_TARGET_API_KEY`, or the basic-auth pair). Test plans read them through `${__groovy(System.getenv("VAR"))}`. Do not use `${__env(...)}`: it is not a real JMeter function and silently resolves to literal text.
+1. Copy `profiles/rest-boomi-gateway.example.yaml` and fill in the placeholders.
+2. Put credentials in `.env` (`BOOMI_TEST_TARGET_API_KEY`, or the basic-auth pair). Test plans read them through `${__groovy(System.getenv("VAR"))}`. Do not use `${__env(...)}`: it is not a real JMeter function and silently resolves to literal text.
 3. The host must be reachable from inside the JMeter container: a public or VPN hostname, or `host.docker.internal`. `localhost` will not work.
 4. Start with the low settings in the example, and confirm limits with the owner before loading a shared runtime.
 
@@ -166,7 +163,7 @@ The summary report prints in every case. When requests failed, it also lists the
 - **Throughput cap.** Averages and p99 are trustworthy at any bucket setting. `rps` and `tps` can only throttle, never raise load.
 - **Starter pause.** The `starter.jmx` and `smoke-test.jmx` plans include a 15 second pause so short demos survive a Prometheus scrape. Delete it when cloning a starter for a real test.
 - **Transaction Controller.** Don't wrap samplers in a Transaction Controller with `parent=true`. With `jmeter-prometheus-plugin` 0.7.1 it hides the individual sampler labels from Prometheus.
-- **Grafana changes.** After editing `grafana/dashboards/` or `grafana/provisioning/`, rebuild the image and also remove the `grafana-data` volume, or Grafana keeps the old dashboard. The steps are in `POC_DEVELOPMENT/README.md`.
+- **Grafana changes.** After editing `docker/grafana/dashboards/` or `docker/grafana/provisioning/`, rebuild the image and also remove the `grafana-data` volume, or Grafana keeps the old dashboard. The steps are in `docs/operations.md`.
 - **After a restart.** If Docker restarts, bring the long-running services back up before running `ramp.sh`, or the report shows "NO DATA".
 - **Plugin GUI quirk.** Selecting the Prometheus Listener node in the JMeter GUI shows a dismissible error. It is cosmetic and does not affect runs.
 - **Sample REST target.** `rest-target` pulls `pythonicshahdev/fastapi-commercial-source:latest` from Docker Hub.
@@ -174,36 +171,36 @@ The summary report prints in every case. When requests failed, it also lists the
 ## Repository layout
 
 ```
-POC_DEVELOPMENT/
-  ramp.py, ramp.sh        orchestrator: profile -> plan -> runs -> report
-  console/, console.sh    web console (browser UI over ramp.py)
-  run-test.sh             single-shot run of a starter plan
-  smoke-test.sh           end-to-end stack check
-  ramp-profiles/          example and working YAML profiles
-  ramp-profile-builder.html   visual profile builder (open directly in a browser)
-  baselines/              saved regression baselines (commit these)
-  test-plans/             .jmx plans per protocol: starters and ramp variants
-  grafana/ prometheus/    provisioned dashboard, datasource and scrape config
-  jmeter/ jmeter-gui/     Docker images
-  sample-services/        bundled GraphQL target
-  tests/                  unit tests for ramp.py and the console
-  docs/                   guides and design documents
+ramp.py, ramp.sh        orchestrator: profile -> plan -> runs -> report
+console/, console.sh    web console (browser UI over ramp.py)
+setup.sh                one-shot setup
+run-test.sh             single-shot run of a starter plan
+smoke-test.sh           end-to-end stack check
+docker-compose.yml      the stack
+profiles/               example and working YAML profiles
+ramp-profile-builder.html   visual profile builder (open directly in a browser)
+baselines/              saved regression baselines (commit these)
+test-plans/             .jmx plans per protocol: starters and ramp variants
+docker/                 image sources and config
+  jmeter/ jmeter-gui/   JMeter images
+  grafana/ prometheus/  provisioned dashboard, datasource and scrape config
+  sample-services/      bundled sample targets
+tests/                  unit tests for ramp.py and the console
+docs/                   guides, design notes, Docker Hub overviews
+skills/                 Claude Code skill for this toolkit
 ```
-
-The repository root also holds a Boomi workspace template (`active-development/`, `CLAUDE.md`, `.claude/`) used for Claude Code development. It isn't part of the toolkit. Its original README is at `POC_DEVELOPMENT/docs/template-workspace-readme.md`.
 
 ## Documentation
 
-- [Usage guide](POC_DEVELOPMENT/docs/usage-guide-2026-10-15.md): step-by-step setup, running tests, profiles, Grafana.
-- [Technical guide](POC_DEVELOPMENT/docs/technical-guide-2026-10-15.md): architecture, design decisions and the pitfalls found while building it.
-- [Component README](POC_DEVELOPMENT/README.md): authoring test plans and operational notes.
-- [Latency-by-hop page](POC_DEVELOPMENT/docs/boomi-latency-by-hop-2026-10-18.html): example results from a Boomi API run.
-- [OTel handoff](POC_DEVELOPMENT/docs/otel-session-handoff-2026-10-15.md): notes for combining this with an OpenTelemetry trace stack.
+- [Usage guide](docs/usage-guide.md): step-by-step setup, running tests, profiles, Grafana.
+- [Technical guide](docs/technical-guide.md): architecture, design decisions and the pitfalls found while building it.
+- [Operations notes](docs/operations.md): authoring test plans, credentials, and operational gotchas.
+- [Latency-by-hop page](docs/examples/boomi-latency-by-hop.html): example results from a Boomi API run.
+- [Design notes](docs/design/): the original specs and implementation plans.
 
 ## Tests
 
 ```bash
-cd POC_DEVELOPMENT
 .venv-ramp/bin/pip install -r requirements-dev.txt
 .venv-ramp/bin/python -m pytest tests -q
 ```

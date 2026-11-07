@@ -1,0 +1,137 @@
+name: boomi-loadtest
+
+networks:
+  perf-test-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+services:
+  jmeter:
+    build:
+      context: ./docker/jmeter
+    image: pythonicshahdev/boomi-loadtest-jmeter:latest
+    networks:
+      - perf-test-net
+    volumes:
+      - ./test-plans:/test-plans
+    env_file:
+      - path: .env
+        required: false
+    # Database load tests (protocol: jdbc) read these. The defaults are the bundled
+    # postgres-target sample's login; set both in .env to test your own database.
+    environment:
+      BOOMI_TEST_DB_USER: ${BOOMI_TEST_DB_USER:-loadtest}
+      BOOMI_TEST_DB_PASSWORD: ${BOOMI_TEST_DB_PASSWORD:-loadtest}
+    # Docker Desktop provides host.docker.internal itself; on a Linux host this
+    # maps it to the host so profiles that target "the machine running the stack" work there too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles: ["tools"]
+
+  # Identical to jmeter, but under its own service name/alias. ramp.py's
+  # launch_instance() uses --use-aliases (required for Prometheus's
+  # file-based discovery of its deterministic container name), which also
+  # registers the container under this service's own alias. If ramp
+  # instances ran under the "jmeter" service itself, that alias would
+  # collide with the base project's static `jmeter:9270` scrape target,
+  # and Prometheus's DNS round-robin between whichever ramp container
+  # happened to be up would corrupt that job's counter with a
+  # non-monotonic, unattributable series (no run_id/step_id labels).
+  # A separate service name keeps the two scrape jobs permanently distinct.
+  jmeter-ramp:
+    build:
+      context: ./docker/jmeter
+    image: pythonicshahdev/boomi-loadtest-jmeter:latest
+    networks:
+      - perf-test-net
+    volumes:
+      - ./test-plans:/test-plans
+    env_file:
+      - path: .env
+        required: false
+    # Database load tests (protocol: jdbc) read these. The defaults are the bundled
+    # postgres-target sample's login; set both in .env to test your own database.
+    environment:
+      BOOMI_TEST_DB_USER: ${BOOMI_TEST_DB_USER:-loadtest}
+      BOOMI_TEST_DB_PASSWORD: ${BOOMI_TEST_DB_PASSWORD:-loadtest}
+    # Docker Desktop provides host.docker.internal itself; on a Linux host this
+    # maps it to the host so profiles that target "the machine running the stack" work there too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles: ["tools"]
+
+  jmeter-gui:
+    build:
+      context: ./docker/jmeter-gui
+    image: boomi-jmeter-gui:dev
+    networks:
+      - perf-test-net
+    ports:
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - ./test-plans:/test-plans
+    env_file:
+      - path: .env
+        required: false
+
+  prometheus:
+    image: prom/prometheus:latest
+    networks:
+      - perf-test-net
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+      - ./docker/prometheus/targets:/etc/prometheus/targets:ro
+
+    ports:
+      - "127.0.0.1:9090:9090"
+  grafana:
+    build:
+      context: ./docker/grafana
+    image: pythonicshahdev/boomi-loadtest-grafana:latest
+    networks:
+      - perf-test-net
+    ports:
+      - "127.0.0.1:3004:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  rest-target:
+    image: pythonicshahdev/fastapi-commercial-source:latest
+    networks:
+      - perf-test-net
+    ports:
+      - "127.0.0.1:8010:4005"
+
+  # Sample database for JDBC load tests (see profiles/jdbc-postgres-sample.yaml).
+  # Throwaway data, throwaway login: loadtest / loadtest.
+  postgres-target:
+    image: postgres:16-alpine
+    networks:
+      - perf-test-net
+    environment:
+      POSTGRES_USER: loadtest
+      POSTGRES_PASSWORD: loadtest
+      POSTGRES_DB: loadtest
+    volumes:
+      - ./docker/sample-services/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "127.0.0.1:5439:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loadtest -d loadtest"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  graphql-target:
+    build:
+      context: ./docker/sample-services/graphql-strawberry
+    image: pythonicshahdev/boomi-loadtest-graphql-target:latest
+    networks:
+      - perf-test-net
+    ports:
+      - "127.0.0.1:8011:8001"

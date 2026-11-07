@@ -31,4 +31,13 @@ venv/
 **/test-plans/generated/
 
 # Web console run history
-POC_DEVELOPMENT/console/runs/
+console/runs/
+
+# Local-only files (never published)
+.local/
+.claude/
+CLAUDE.md
+active-development/
+.superpowers/
+.env.*
+!.env.example
