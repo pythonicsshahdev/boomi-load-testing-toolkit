@@ -420,7 +420,7 @@ def test_live_metrics_validates_the_run_id_and_maps_queries(monkeypatch):
     seen = []
     monkeypatch.setattr(extras, "_prom", lambda q: (seen.append(q), 7.0)[1])
     result = extras.live_metrics("20261107-125037")
-    assert set(result) == {"throughput", "error_pct", "p95_ms", "avg_ms", "active_threads"}
+    assert set(result) == {"throughput", "tps", "error_pct", "p95_ms", "avg_ms", "active_threads"}
     assert all(v == 7.0 for v in result.values())
     assert any('run_id="20261107-125037"' in q for q in seen)
 
@@ -453,3 +453,17 @@ def test_run_end_time_comes_from_the_summary_file_not_from_when_the_console_noti
     state = wait_done(env, run["id"])
     written = (env.runs_dir / run["id"] / "summary.json").stat().st_mtime
     assert abs(state["ended_at"] - written) < 0.05 and state["ended_at"] < time.time() - 1.0
+
+
+def test_live_metrics_reports_tps_as_requests_divided_by_requests_per_iteration(monkeypatch):
+    monkeypatch.setattr(extras, "_prom", lambda q: 48.0 if "jmeter_requests_total" in q and "100 *" not in q and "histogram" not in q else 1.0)
+    result = extras.live_metrics("20261107-125037", requests_per_iteration=2)
+    assert result["throughput"] == 48.0 and result["tps"] == 24.0
+    assert extras.live_metrics("20261107-125037")["tps"] == 48.0  # one request per iteration
+    monkeypatch.setattr(extras, "_prom", lambda q: None)
+    assert extras.live_metrics("20261107-125037", 2)["tps"] is None
+
+
+def test_run_remembers_how_many_requests_make_one_iteration(env):
+    state = wait_done(env, env.start("small")["id"])
+    assert state["requests_per_iteration"] == 1

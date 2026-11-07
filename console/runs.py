@@ -227,6 +227,7 @@ class RunManager:
                 "started_at": time.time(), "ended_at": None, "stop_requested": False,
                 "total_sec": summary["total_sec"], "steps": summary["steps"],
                 "warmup_sec": summary["warmup_sec"],
+                "requests_per_iteration": max(1, len(summary.get("requests") or [])),
             }
             _write_json(self._state_path(run_id), state)
         return self._decorate(state)

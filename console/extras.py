@@ -31,16 +31,20 @@ def _prom(promql):
     return None if value != value else value  # NaN means "no samples in the window"
 
 
-def live_metrics(ramp_run_id):
+def live_metrics(ramp_run_id, requests_per_iteration=1):
     """Current numbers for a running test, or None when the run id is not usable. Values are None until
-    Prometheus has scraped them (a few seconds after a phase starts), so the UI shows a dash, not a zero."""
+    Prometheus has scraped them (a few seconds after a phase starts), so the UI shows a dash, not a zero.
+    `throughput` is requests per second; `tps` is whole flow iterations per second, which is the unit
+    profiles use (every request in the flow runs once per iteration)."""
     if not ramp_run_id or not RUN_ID_RE.match(ramp_run_id):
         return None
     sel = f'run_id="{ramp_run_id}"'
     requests = f"sum(rate(jmeter_requests_total{{{sel}}}[15s]))"
     failures = f"(sum(rate(jmeter_failures_total{{{sel}}}[15s])) or vector(0))"
+    throughput = _prom(requests)
     return {
-        "throughput": _prom(requests),
+        "throughput": throughput,
+        "tps": throughput / max(1, requests_per_iteration) if throughput is not None else None,
         "error_pct": _prom(f"100 * {failures} / {requests}"),
         "p95_ms": _prom(f"histogram_quantile(0.95, sum by (le) (rate(jmeter_response_time_ms_bucket{{{sel}}}[30s])))"),
         "avg_ms": _prom(f"sum(rate(jmeter_response_time_ms_sum{{{sel}}}[15s])) / sum(rate(jmeter_response_time_ms_count{{{sel}}}[15s]))"),

@@ -281,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
             state = mgr.get(run_id)
             if state is None:
                 raise RunError("No such run", 404)
-            return self._send(200, extras.live_metrics(state.get("ramp_run_id")) or {})
+            return self._send(200, extras.live_metrics(state.get("ramp_run_id"), state.get("requests_per_iteration", 1)) or {})
         if method == "PUT" and rest == ["note"]:
             return self._send(200, {"note": mgr.set_note(run_id, self._json_body().get("note", ""))})
         if method == "POST" and rest == ["stop"]:
